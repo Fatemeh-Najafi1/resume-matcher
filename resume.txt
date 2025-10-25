@@ -1,0 +1,55 @@
+JOHN DOE
+Senior Data Scientist | Machine Learning Engineer | NLP Specialist
+Email: john.doe@example.com | Phone: +1 (555) 123-4567 | LinkedIn: linkedin.com/in/johndoe
+
+SUMMARY
+Results-oriented data scientist with 8+ years of experience applying statistical analysis, natural language processing, and machine learning to solve real-world business problems. Adept at building scalable models, leading cross-functional teams, and transforming data into actionable insights. Passionate about healthcare analytics and responsible AI.
+
+SKILLS
+• Programming: Python, R, SQL, Java, Bash
+• ML / DL: Scikit-learn, TensorFlow, PyTorch, XGBoost, LightGBM, spaCy, Transformers
+• Data: Pandas, NumPy, Spark, Hadoop, AWS S3, Redshift
+• Visualization: Power BI, Tableau, Matplotlib, Seaborn
+• Other: Git, Docker, Kubernetes, CI/CD, REST APIs
+
+EXPERIENCE
+Senior Data Scientist – Acme Health Analytics, San Francisco, CA (2020–Present)
+- Designed and deployed end-to-end machine learning pipelines for predicting hospital readmission and disease risk stratification.
+- Improved model AUC by 12% through feature engineering, ensemble methods, and hyperparameter tuning.
+- Collaborated with clinicians to interpret model results and ensure ethical data use.
+- Built NLP tools to process 3M+ clinical notes using BERT, spaCy, and TF-IDF pipelines.
+- Mentored 4 junior data scientists and interns.
+
+Data Scientist – FinTech Innovations, New York, NY (2017–2020)
+- Created customer churn prediction model reducing attrition by 18%.
+- Automated reporting dashboards using Power BI and SQL.
+- Implemented model monitoring system with alerts for data drift and model decay.
+
+Data Analyst – TechNova Solutions, Boston, MA (2014–2017)
+- Cleaned and analyzed datasets of over 20 million transactions.
+- Developed predictive sales models in R using logistic regression and random forest.
+- Presented findings to senior management, leading to 5% increase in quarterly revenue.
+
+EDUCATION
+M.Sc. in Data Science – University of California, Berkeley (2014)
+B.Sc. in Computer Engineering – Boston University (2012)
+
+CERTIFICATIONS
+• TensorFlow Developer Certificate (2022)
+• AWS Certified Machine Learning – Specialty (2021)
+• Microsoft Certified: Azure Data Scientist Associate (2020)
+
+PUBLICATIONS
+- “Predicting Hospital Readmissions with Deep Learning Models,” Journal of Healthcare Analytics, 2023.
+- “Explainable AI for Medical Decision Support,” NeurIPS Workshop on Responsible AI, 2022.
+
+PROJECTS
+• Healthcare NLP Dashboard: BERT-based system for extracting diagnoses and symptoms from clinical text.
+• Loan Default Prediction API: Flask-based model serving system deployed on AWS Lambda.
+
+AWARDS
+• Employee of the Year, Acme Health Analytics (2022)
+• Best Machine Learning Paper Award, DataSciConf (2021)
+
+REFERENCES
+Available upon request.

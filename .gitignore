@@ -1,5 +1,25 @@
-﻿.venv/
+﻿# Python
 __pycache__/
 *.pyc
-data/processed/
-models/
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Streamlit cache
+.streamlit/
+
+# Logs and temp
+*.log
+/tmp/

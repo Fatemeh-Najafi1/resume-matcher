@@ -1,0 +1,14 @@
+#this file hold evrything we might change later without having to edit puthon code
+embedding_model: sentence-transformers/all-MiniLM-L6-v2
+#model that converts text into number vectors for matching
+#MiniLM is fast and accurate and low cost
+score_threshold: 0.65
+#minimum of similarity with job description to be considered a good fit
+skills_list_path: data/skills/core_skills.txt
+#list of associated skills in resume
+stopwords_extra:
+  - resume
+  - curriculum
+  - vitae
+#unrelated words in resume for matching so we remove them
+
