@@ -1,4 +1,41 @@
-We are looking for a backend Python engineer with strong knowledge of Django,
-SQL, REST API design, and cloud infrastructure.
-"We are looking for a backend Python engineer with strong knowledge of Django,
-SQL, REST API design, and cloud infrastructure."
+Position: Senior Machine Learning Engineer – Healthcare Analytics
+
+Location: Remote / San Francisco, CA
+
+About the Role
+We are seeking a highly experienced Machine Learning Engineer to join our healthcare analytics division. The successful candidate will design, train, and deploy large-scale models for clinical text and patient data analysis. This position requires deep expertise in Python, TensorFlow or PyTorch, and modern NLP frameworks.
+
+Responsibilities
+- Build, train, and optimize deep learning models for healthcare and medical data.
+- Collaborate with data engineers and clinicians to define problem statements and ensure data integrity.
+- Develop scalable data pipelines for both structured and unstructured datasets.
+- Implement model explainability and responsible AI practices.
+- Contribute to the architecture of production ML systems (Docker, Kubernetes, REST APIs).
+- Support model monitoring, retraining, and versioning using MLflow or equivalent tools.
+- Document experiments, results, and present findings to stakeholders.
+
+Requirements
+- 6+ years of experience in machine learning, data science, or AI product development.
+- Strong proficiency in Python, Scikit-learn, TensorFlow, PyTorch.
+- Experience with NLP (Transformers, BERT, spaCy) and text classification.
+- Proficiency in SQL and data wrangling using Pandas or Spark.
+- Familiarity with cloud platforms (AWS, Azure, or GCP) and CI/CD pipelines.
+- Proven experience in deploying ML models to production environments.
+- Excellent communication and cross-functional collaboration skills.
+- Master’s degree or Ph.D. in Computer Science, Data Science, or related field.
+
+Preferred Qualifications
+- Experience with healthcare data (EHRs, HL7, FHIR) and HIPAA compliance.
+- Familiarity with explainable AI, model fairness, and ethics.
+- Publications or open-source contributions in the ML/NLP domain.
+
+Compensation & Benefits
+- Competitive salary and performance-based bonuses.
+- Health, dental, and vision coverage.
+- Remote-first team culture with flexible hours.
+- Generous learning and conference budget.
+
+Company Overview
+MedAI Analytics is a rapidly growing startup at the intersection of healthcare and artificial intelligence. We partner with hospitals and research institutions to deliver data-driven insights that improve patient outcomes. Our mission is to make medical decision support systems accurate, transparent, and equitable.
+
+Equal Opportunity Employer.

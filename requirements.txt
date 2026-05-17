@@ -1,1 +1,10 @@
-"pandas\npython-docx\npdfminer.six\nscikit-learn" 
+pandas
+python-docx
+pdfminer.six
+scikit-learn
+streamlit
+sentence-transformers
+pdfplumber
+docx2txt
+nltk
+numpy
