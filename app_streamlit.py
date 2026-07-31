@@ -39,6 +39,23 @@ def cached_research(company_name):
     return research_company(company_name)
 
 
+def get_key(name):
+    """Read an API key from .env locally, or Streamlit secrets when deployed.
+
+    .env is gitignored, so it does not exist on Streamlit Community Cloud — a
+    deployment that only reads os.getenv finds nothing and every visitor sees
+    "no API key". Secrets set in the Streamlit dashboard are read here instead.
+    """
+    value = os.getenv(name, "")
+    if value:
+        return value
+    try:
+        return st.secrets.get(name, "")
+    except Exception:
+        # No secrets.toml configured — normal when running locally.
+        return ""
+
+
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("📄 Resume Matcher")
 st.markdown(
@@ -65,9 +82,9 @@ with st.sidebar:
 
     # Pre-fill from .env if a key is present, so the app works out of the box.
     default_keys = {
-        "gemini": os.getenv("GEMINI_API_KEY", ""),
-        "openai": os.getenv("OPENAI_API_KEY", ""),
-        "anthropic": os.getenv("ANTHROPIC_API_KEY", ""),
+        "gemini": get_key("GEMINI_API_KEY"),
+        "openai": get_key("OPENAI_API_KEY"),
+        "anthropic": get_key("ANTHROPIC_API_KEY"),
     }
     default_key = default_keys[provider]
 
@@ -89,9 +106,9 @@ with st.sidebar:
         "anthropic": "ANTHROPIC_API_KEY",
     }[provider]
     if default_key:
-        st.caption(f"✓ Loaded from `{key_source}` in .env")
+        st.caption(f"✓ Loaded from `{key_source}`")
     else:
-        st.caption(f"No `{key_source}` in .env — paste a key above.")
+        st.caption(f"No `{key_source}` configured — paste a key above to enable AI analysis.")
 
     if provider == "gemini":
         st.info("Get a free Gemini key at [aistudio.google.com](https://aistudio.google.com)", icon="ℹ️")
