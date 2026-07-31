@@ -1,76 +1,58 @@
-#from config import score_threshold
 import numpy as np
 
-class Comperator:
-    def __init__(self, resume, job, model='basic', llmclient=None, thershold=0.7):
+from .utils import score_band, score_verdict
+
+
+class Comparator:
+    """Scores how close two documents sit in embedding space."""
+
+    def __init__(self, resume, job, model="basic", llmclient=None):
         self.resume = resume
         self.job = job
         self.model = model
         self.llmclient = llmclient
-        self.thershold = thershold  # if theresehole is not None else score_threshold
 
     def calculate_similarity(self, vec1, vec2):
-        if self.model == 'basic':
-            if self.model == "basic":
-                score = self._compare_basic(vec1, vec2)
-            elif self.model == "openai":
-                score = self._compare_openai(vec1, vec2)
-            elif self.model == "ollama":
-                score = self._compare_ollama(vec1, vec2)
-            else:
-                raise ValueError(f"Unknown comparison model: {self.model}")
-            return score
+        if self.model == "basic":
+            return self._compare_basic(vec1, vec2)
+        elif self.model == "openai":
+            return self._compare_openai(vec1, vec2)
+        elif self.model == "ollama":
+            return self._compare_ollama(vec1, vec2)
+        else:
+            raise ValueError(f"Unknown comparison model: {self.model}")
 
     def _compare_basic(self, vec1, vec2):
+        """Cosine similarity, computed explicitly.
+
+        The vectors come back from .encode() unnormalized, so we divide by both
+        norms rather than assuming unit length. Measuring the angle — not the
+        distance — means a short, precise resume isn't penalised against a long
+        job posting just for having fewer words.
+        """
         v1, v2 = np.array(vec1), np.array(vec2)
-        # get vector 1 and 2 turn them into numpu array for operation
-        if np.linalg.norm(v1) == 0 or np.linalg.norm(v2) == 0:
+        norm1, norm2 = np.linalg.norm(v1), np.linalg.norm(v2)
+        if norm1 == 0 or norm2 == 0:
+            # one of the documents was empty — no meaningful angle exists
             return 0.0
-        # calculating leenghth
-        # if they hold no vallues return 0
-        return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-        # computing cosine
+        return float(np.dot(v1, v2) / (norm1 * norm2))
 
-    def _compare_openai(vec1, vec2):
-        # for develomemt in later phases
-        pass
+    def _compare_openai(self, vec1, vec2):
+        raise NotImplementedError("OpenAI comparison is not wired up yet.")
 
-    def _compare_ollama(vec1, vec2):
-        # later phases
-        pass
+    def _compare_ollama(self, vec1, vec2):
+        raise NotImplementedError("Ollama comparison is not wired up yet.")
 
     def provide_insight(self, vec1, vec2, score, llmclient=None):
-        if llmclient == None:
-            insight = self.basic_insight(vec1, vec2, score)
-        elif llmclient == 'openai':
-            pass
-        elif llmclient == 'ollama':
-            pass
-
-        return insight
+        client = llmclient or self.llmclient
+        if client is None:
+            return self.basic_insight(vec1, vec2, score)
+        raise NotImplementedError(f"LLM insight via '{client}' is not wired up yet.")
 
     def basic_insight(self, vec1, vec2, score):
-        t = self.thershold
-        if score >= t + 0.15:
-            comment = "you are ready for applying, wonderful match"
-        elif score >= t:
-            comment = "good matchyou need to develop aa few more skills to increase you chance"
-        elif score >= t - 0.15:
-            comment = "Partial match; align you resume with job descrioption."
-        else:
-            comment = "Low match; revise resume to target the job more closely."
-
+        """Plain-English reading of the score, using the shared bands."""
         return {
-            "score": score,
-            "interpretation": comment
+            "score": float(score),
+            "band": score_band(score),
+            "interpretation": score_verdict(score),
         }
-
-    def llm_openai_insight(self, vec1, vec2, score):
-        """(Future) Generate insight via OpenAI GPT model."""
-        print("⚠️ OpenAI-based insight not implemented yet.")
-        return self.basic_insight(vec1, vec2, score)
-
-    def llm_ollama_insight(self, vec1, vec2, score):
-        """(Future) Generate insight via Ollama local model."""
-        print("⚠️ Ollama-based insight not implemented yet.")
-        return self.basic_insight(vec1, vec2, score)

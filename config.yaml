@@ -1,14 +1,63 @@
-#this file hold evrything we might change later without having to edit puthon code
-embedding_model: sentence-transformers/all-MiniLM-L6-v2
-#model that converts text into number vectors for matching
-#MiniLM is fast and accurate and low cost
-score_threshold: 0.65
-#minimum of similarity with job description to be considered a good fit
-skills_list_path: data/skills/core_skills.txt
-#list of associated skills in resume
-stopwords_extra:
-  - resume
-  - curriculum
-  - vitae
-#unrelated words in resume for matching so we remove them
+# Central settings for the resume matcher.
+# Loaded by src/config.py at import time — change values here instead of
+# editing Python. Anything omitted falls back to the defaults in src/config.py.
 
+embedding:
+  # Model that converts text into number vectors for matching.
+  # MiniLM is fast, accurate enough for a single-pair comparison, and cheap.
+  model: sentence-transformers/all-MiniLM-L6-v2
+  # Vector length the model outputs — used for the empty-text fallback.
+  dimensions: 384
+
+# Cosine-similarity bands, shared by Comparator and Generator so the two can
+# never disagree about the same score.
+scoring:
+  strong: 0.85
+  good: 0.70
+  partial: 0.55
+
+# Requirement-level matching. These apply only to requirements too general to
+# check literally ("strong engineering skills"); anything naming a technology
+# or a degree is decided by presence, not similarity.
+#
+# Set deliberately high. Cosine between a short requirement and a short bullet
+# is a weak signal — at 0.45 it rated "Setup new strategies" a partial match
+# against a line listing Cisco certificates. For a tool whose whole promise is
+# not overstating what you have, a missed match costs far less than a false one.
+matching:
+  covered: 0.55
+  partial: 0.40
+
+cleaning:
+  # Added on top of NLTK's English stopword list. These are resume boilerplate:
+  # every resume contains them, so they carry no signal about a match.
+  stopwords_extra:
+    - resume
+    - curriculum
+    - vitae
+    - experience
+    - skill
+    - responsible
+    - work
+    - developed
+    - project
+    - reference
+    - available
+    - request
+
+skills:
+  # Vocabulary used to pull a concrete skill set out of each document.
+  path: data/skills_list.txt
+
+# Model IDs for the optional LLM analysis step. Providers retire model names
+# without warning — "gemini-1.5-flash" was hardcoded here and had been removed,
+# which broke the whole AI panel. Keeping them here makes that a one-line fix.
+#
+# Note on gemini: the "-latest" alias is deliberate. Pinned Gemini versions get
+# closed to new users over time — gemini-1.5-flash and gemini-2.5-flash both
+# return 404 on this key, and gemini-2.0-flash returns 429 with a free-tier
+# quota of 0. Listing the models does not tell you which ones you may call.
+llm:
+  gemini: gemini-flash-latest
+  openai: gpt-4o-mini
+  anthropic: claude-3-5-haiku-20241022

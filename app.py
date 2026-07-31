@@ -1,63 +1,66 @@
 # app.py
 import argparse
 import os
-from src.Reader import Reader
+import sys
+
+from src.Reader import Reader, UnreadableDocumentError
 from src.Cleaner import Cleaner
 from src.Embedder import Embedder
-from src.Comparator import Comperator
+from src.Comparator import Comparator
 from src.Generator import Generator
-# from src.utils import print_summary
+
+
+def read_or_prompt(reader, path, label):
+    """Load a document from disk, or fall back to pasted text."""
+    if path and os.path.exists(path):
+        try:
+            return reader.read_file(path)
+        except (UnreadableDocumentError, ValueError) as e:
+            print(f"\n⚠️ Could not read {label}: {e}")
+    else:
+        print(f"\n⚠️ {label.capitalize()} file not found or not provided.")
+    return input(f"Please paste the {label} text below:\n> ")
+
 
 def main():
-    reader = Reader()
-    parser = argparse.ArgumentParser(description="Resume App")
-    parser.add_argument("--resume", help="Path to resume file")  
-    parser.add_argument("--job", help="Path to job description file")  
+    parser = argparse.ArgumentParser(description="Resume Matcher")
+    parser.add_argument("--resume", help="Path to resume file")
+    parser.add_argument("--job", help="Path to job description file")
     args = parser.parse_args()
 
-    # 1. Load files(resume+job description)
-    if args.resume and os.path.exists(args.resume):
-        resume_text = reader.load_resume(args.resume)
-    else:
-        print("\n⚠️ Resume file not found or not provided.")
-        resume_text = input("Please paste your resume text below:\n> ")
+    reader = Reader()
 
-    if args.job and os.path.exists(args.job):
-        job_text = reader.load_job_description(args.job)
-    else:
-        print("\n⚠️ Job description file not found or not provided.")
-        job_text = input("Please paste the job description text below:\n> ")
+    # 1. Load both documents
+    resume_text = read_or_prompt(reader, args.resume, "resume")
+    job_text = read_or_prompt(reader, args.job, "job description")
 
-    # 2. Preprocess (cleans text for embedding)
-    c = Cleaner(stop_words=[], regexe=[])  # (create cleaner instance)
-    resume_clean = c.preprocess(resume_text, doc_type="resume")  # calling insatnce
-    job_clean = c.preprocess(job_text, doc_type="job")  
+    if not resume_text.strip() or not job_text.strip():
+        print("Both a resume and a job description are required.")
+        sys.exit(1)
 
-    # 3. Embeddings (turns text into vector for matching)
-    e = Embedder(model="basic")  # create embedder instance)
-    #resume_vect = e.get_embeddings(resume_clean, model="basic")  # insyance  call)
-    #job_vect = e.get_embeddings(job_clean, model="basic")  # instance call)
-    # 3️⃣ Embeddings (turns text into vector for matching)
-    resume_vect = e.get_embeddings(resume_clean["clean_text"], model="basic")
-    job_vect = e.get_embeddings(job_clean["clean_text"], model="basic")
+    # 2. Preprocess — produces clean_text for embedding and keywords for the gap report
+    c = Cleaner()
+    resume_clean = c.preprocess(resume_text, doc_type="resume")
+    job_clean = c.preprocess(job_text, doc_type="job")
 
+    # 3. Embeddings — text becomes a 384-dim vector
+    e = Embedder(model="basic")
+    resume_vect = e.get_embeddings(resume_clean["clean_text"])
+    job_vect = e.get_embeddings(job_clean["clean_text"])
 
-    # 4. Compare similarity
-    comp = Comperator(resume_text, job_text, model="basic")  #create comparator instance)
-    score = comp.calculate_similarity(resume_vect, job_vect)  # instance method)
-    summar = comp.provide_insight(resume_vect, job_vect, score)  #added score argument)
+    # 4. Compare — cosine similarity between the two vectors
+    comp = Comparator(resume_text, job_text, model="basic")
+    score = comp.calculate_similarity(resume_vect, job_vect)
+    insight = comp.provide_insight(resume_vect, job_vect, score)
 
-    # 5. Generate rewritten resume
-    gen = Generator()  # create generator instance)
-    rewritten_resume = gen.generate_text(resume_text, job_text, score)  #instance method)
+    # 5. Keyword gap report (literal comparison, no model involved)
+    report = Generator().generate_text(resume_clean, job_clean, score)
 
     # 6. Output
-    
-    print("\nSimilarity Score:", score)
-    print(" Insight:", summar)
-    print("\n Rewritten Resume:\n", rewritten_resume)
+    print(f"\nSimilarity score: {round(score * 100, 1)}%")
+    print(f"Insight: {insight['interpretation']}")
+    print(f"\n{report}")
 
 
 if __name__ == "__main__":
     main()
-

@@ -1,0 +1,152 @@
+# Skill vocabulary used by Cleaner.extract_skill_set.
+# One skill per line, lowercase. Multi-word entries are matched as phrases.
+# Blank lines and lines starting with # are ignored.
+#
+# Deliberately excluded: bare "go" and "r". Matching is literal, so a one- or
+# two-letter entry that is also an ordinary English word fires on almost every
+# document ("go to market", "r&d"). A false "you know Go" is worse than a
+# missed one, so "golang" stands in for it.
+
+# ── Languages ────────────────────────────────────────────────────────────────
+python
+java
+javascript
+typescript
+c++
+c#
+golang
+rust
+ruby
+php
+scala
+kotlin
+swift
+matlab
+sql
+bash
+html
+css
+
+# ── Data / ML ────────────────────────────────────────────────────────────────
+machine learning
+deep learning
+natural language processing
+nlp
+computer vision
+data analysis
+data science
+data engineering
+statistics
+pandas
+numpy
+scikit-learn
+scipy
+tensorflow
+pytorch
+keras
+xgboost
+hugging face
+transformers
+sentence-transformers
+embeddings
+vector database
+rag
+llm
+prompt engineering
+feature engineering
+time series
+a/b testing
+data visualization
+matplotlib
+seaborn
+plotly
+tableau
+power bi
+jupyter
+
+# ── Backend / web ────────────────────────────────────────────────────────────
+django
+flask
+fastapi
+streamlit
+node.js
+express
+react
+angular
+vue
+next.js
+rest api
+graphql
+microservices
+websocket
+beautifulsoup
+selenium
+web scraping
+
+# ── Data stores ──────────────────────────────────────────────────────────────
+postgresql
+mysql
+sqlite
+mongodb
+redis
+elasticsearch
+cassandra
+snowflake
+bigquery
+spark
+hadoop
+kafka
+airflow
+etl
+data warehouse
+
+# ── Cloud / infra ────────────────────────────────────────────────────────────
+aws
+azure
+gcp
+google cloud
+docker
+kubernetes
+terraform
+ansible
+jenkins
+github actions
+gitlab ci
+ci/cd
+linux
+nginx
+serverless
+lambda
+
+# ── Tooling / practice ───────────────────────────────────────────────────────
+git
+github
+agile
+scrum
+kanban
+jira
+unit testing
+integration testing
+pytest
+test driven development
+code review
+debugging
+system design
+object oriented programming
+design patterns
+data structures
+algorithms
+api design
+version control
+
+# ── Professional ─────────────────────────────────────────────────────────────
+project management
+stakeholder management
+technical writing
+documentation
+mentoring
+cross functional collaboration
+problem solving
+communication
+teamwork
+presentation

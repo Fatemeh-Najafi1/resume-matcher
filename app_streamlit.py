@@ -1,72 +1,491 @@
 # app_streamlit.py
+import os
+from pathlib import Path
+
 import streamlit as st
-from src.Reader import Reader
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+
+from src.Reader import Reader, UnreadableDocumentError
 from src.Cleaner import Cleaner
 from src.Embedder import Embedder
-from src.Comparator import Comperator
+from src.Comparator import Comparator
 from src.Generator import Generator
+from src.Scraper import scrape_job_url
+from src.LLMAnalyzer import analyze
+from src.CompanyResearcher import extract_company_name, research_company
+from src.Requirements import extract_requirements
+from src.Matcher import split_bullets, match, unmatched_bullets
 
-
-# Streamlit page config
+# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Resume Matcher",
     page_icon="📄",
     layout="wide"
 )
 
-st.title("📄 Resume & Job Description Matcher")
-st.write("Upload your **resume** and **job description**, and this tool will calculate similarity, provide insights, and suggest improvements.")
 
-# Upload files
+# ── Cached network calls ──────────────────────────────────────────────────────
+# Streamlit re-runs the whole script on every interaction. Without these caches
+# a single keystroke would re-scrape the job posting and re-hit DuckDuckGo.
+@st.cache_data(show_spinner=False, ttl=3600)
+def cached_scrape(url):
+    return scrape_job_url(url)
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def cached_research(company_name):
+    return research_company(company_name)
+
+
+# ── Header ────────────────────────────────────────────────────────────────────
+st.title("📄 Resume Matcher")
+st.markdown(
+    "Upload your resume and a job description. Get a similarity score, "
+    "an honest skills gap report, and AI-powered resume suggestions — "
+    "**without adding skills you don't have.**"
+)
+st.divider()
+
+# ── Sidebar: LLM settings ─────────────────────────────────────────────────────
+with st.sidebar:
+    st.header("⚙️ AI Settings")
+    st.markdown("Choose your AI provider for the analysis report.")
+
+    provider = st.selectbox(
+        "AI Provider",
+        options=["gemini", "openai", "anthropic"],
+        format_func=lambda x: {
+            "gemini": "🟢 Google Gemini",
+            "openai": "⚫ OpenAI GPT-4o-mini",
+            "anthropic": "🟠 Anthropic Claude"
+        }[x]
+    )
+
+    # Pre-fill from .env if a key is present, so the app works out of the box.
+    default_keys = {
+        "gemini": os.getenv("GEMINI_API_KEY", ""),
+        "openai": os.getenv("OPENAI_API_KEY", ""),
+        "anthropic": os.getenv("ANTHROPIC_API_KEY", ""),
+    }
+    default_key = default_keys[provider]
+
+    api_key = st.text_input(
+        "API Key",
+        type="password",
+        value=default_key,
+        placeholder={
+            "gemini": "AIza...",
+            "openai": "sk-...",
+            "anthropic": "sk-ant-..."
+        }[provider],
+        help="Read from your .env file if set. You can override it here."
+    )
+
+    key_source = {
+        "gemini": "GEMINI_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+    }[provider]
+    if default_key:
+        st.caption(f"✓ Loaded from `{key_source}` in .env")
+    else:
+        st.caption(f"No `{key_source}` in .env — paste a key above.")
+
+    if provider == "gemini":
+        st.info("Get a free Gemini key at [aistudio.google.com](https://aistudio.google.com)", icon="ℹ️")
+    elif provider == "openai":
+        st.info("Get an OpenAI key at [platform.openai.com](https://platform.openai.com)", icon="ℹ️")
+    elif provider == "anthropic":
+        st.info("Get an Anthropic key at [console.anthropic.com](https://console.anthropic.com)", icon="ℹ️")
+
+    st.divider()
+    st.markdown("**How it works:**")
+    st.markdown(
+        "1. Upload your resume\n"
+        "2. Provide the job description\n"
+        "3. Get your match score\n"
+        "4. Get AI analysis\n"
+        "5. Research the company"
+    )
+
+# ── Main layout ───────────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
+
+# ── Resume input ──────────────────────────────────────────────────────────────
 with col1:
-    resume_file = st.file_uploader("Upload Resume (TXT, DOCX, or PDF)", type=["txt", "docx", "pdf"])
+    st.subheader("📋 Your Resume")
+    resume_file = st.file_uploader(
+        "Upload resume (TXT, DOCX, or PDF)",
+        type=["txt", "docx", "pdf"],
+        key="resume_upload"
+    )
+    st.caption("PDFs must contain real text — a scan or photo has nothing to extract.")
+    resume_text_input = st.text_area(
+        "Or paste your resume here",
+        height=200,
+        placeholder="Paste resume text...",
+        key="resume_text"
+    )
+
+# ── Job description input ─────────────────────────────────────────────────────
 with col2:
-    job_file = st.file_uploader("Upload Job Description (TXT, DOCX, or PDF)", type=["txt", "docx", "pdf"])
+    st.subheader("💼 Job Description")
 
-# When both files are uploaded
-if resume_file and job_file:
-    with st.spinner("🔍 Processing... please wait."):
-        reader = Reader()
+    job_input_method = st.radio(
+        "How would you like to provide the job description?",
+        options=["🔗 Paste a URL", "📝 Paste text", "📁 Upload a file"],
+        horizontal=True
+    )
 
-        # Load texts
-        resume_text = reader.load_resume(resume_file)
-        job_text = reader.load_job_description(job_file)
+    job_text = ""
+    scraped_company = ""   # the employer the page declares, if we scraped one
 
-        # Clean text
-        c = Cleaner(stop_words=[], regexe=[])
+    if job_input_method == "🔗 Paste a URL":
+        job_url = st.text_input(
+            "Job posting URL",
+            placeholder="https://careers.example.com/job/12345"
+        )
+        if job_url:
+            with st.spinner("Scraping job description..."):
+                result = cached_scrape(job_url)
+            if result["success"]:
+                job_text = result["text"]
+                scraped_company = result.get("company", "")
+                msg = f"✅ Extracted {len(job_text.split())} words from the page."
+                if scraped_company:
+                    msg += f" Employer: {scraped_company}."
+                st.success(msg)
+                with st.expander("Preview extracted text"):
+                    st.text(job_text[:1000] + ("..." if len(job_text) > 1000 else ""))
+            else:
+                st.warning(f"⚠️ {result['error']}")
+                if result.get("hint"):
+                    st.info(result["hint"])
+                job_text = st.text_area(
+                    "Paste the job description here instead",
+                    height=200,
+                    placeholder="Select the description on the posting page, copy, and paste here...",
+                    key="job_fallback",
+                )
+
+    elif job_input_method == "📝 Paste text":
+        job_text = st.text_area(
+            "Paste job description here",
+            height=200,
+            placeholder="Paste the full job description...",
+            key="job_paste"
+        )
+
+    elif job_input_method == "📁 Upload a file":
+        job_file = st.file_uploader(
+            "Upload job description (TXT, DOCX, or PDF)",
+            type=["txt", "docx", "pdf"],
+            key="job_upload"
+        )
+        if job_file:
+            try:
+                job_text = Reader().load_job_description(job_file)
+                st.success(f"✅ Loaded {len(job_text.split())} words from file.")
+            except (UnreadableDocumentError, ValueError) as e:
+                st.error(f"Couldn't read that file: {e}")
+
+st.divider()
+
+# ── Run analysis ──────────────────────────────────────────────────────────────
+run_btn = st.button("🚀 Analyse My Resume", type="primary", use_container_width=True)
+
+if run_btn:
+    # Resolve resume text
+    resume_text = ""
+    if resume_file:
+        try:
+            resume_text = Reader().load_resume(resume_file)
+        except (UnreadableDocumentError, ValueError) as e:
+            st.error(f"Couldn't read your resume: {e}")
+            st.stop()
+    elif resume_text_input.strip():
+        resume_text = resume_text_input.strip()
+
+    # Validate inputs
+    if not resume_text:
+        st.error("Please upload or paste your resume.")
+        st.stop()
+    if not job_text:
+        st.error("Please provide a job description.")
+        st.stop()
+
+    # Step 1: similarity score
+    with st.spinner("Computing similarity score..."):
+        c = Cleaner()
         resume_clean = c.preprocess(resume_text, doc_type="resume")
         job_clean = c.preprocess(job_text, doc_type="job")
 
-        # Embed
         e = Embedder(model="basic")
-        resume_vect = e.get_embeddings(resume_clean["clean_text"], model="basic")
-        job_vect = e.get_embeddings(job_clean["clean_text"], model="basic")
+        resume_vect = e.get_embeddings(resume_clean["clean_text"])
+        job_vect = e.get_embeddings(job_clean["clean_text"])
 
-        # Compare
-        comp = Comperator(resume_text, job_text, model="basic")
+        comp = Comparator(resume_text, job_text, model="basic")
         score = comp.calculate_similarity(resume_vect, job_vect)
         insight = comp.provide_insight(resume_vect, job_vect, score)
 
-        # Generate
-        gen = Generator(model="basic")
-        rewritten_resume = gen.generate_text(resume_text, job_text, score)
+    # Step 2: keyword gap (no LLM involved)
+    basic_report = Generator().generate_text(resume_clean, job_clean, score)
 
-    # Display results
-    st.success("✅ Matching complete!")
+    # Step 2b: requirement-level coverage — the analysis that can be acted on
+    with st.spinner("Extracting requirements and matching them to your resume..."):
+        requirements, req_source = extract_requirements(
+            job_text, provider=provider if api_key else None, api_key=api_key
+        )
+        bullets = split_bullets(resume_text)
+        coverage_result = match(requirements, bullets, e, resume_text=resume_text)
 
-    st.subheader("📊 Similarity Score")
-    st.metric(label="Match Score", value=round(float(score), 2))
-    st.caption(insight["interpretation"] if isinstance(insight, dict) else str(insight))
+    # Step 3: LLM analysis
+    llm_result = None
+    if api_key:
+        with st.spinner(f"Analysing with {provider}... this may take 15-30 seconds."):
+            llm_result = analyze(resume_text, job_text, provider=provider, api_key=api_key)
 
-    with st.expander("📄 Original Resume"):
-        st.text_area("", resume_text, height=300)
+    # Step 4: company research. Prefer the name the page declared over a
+    # regex guess at the prose.
+    company_name = scraped_company or extract_company_name(job_text)
+    research = None
+    if company_name:
+        with st.spinner(f"Researching {company_name}..."):
+            research = cached_research(company_name)
 
-    with st.expander("📋 Job Description"):
-        st.text_area("", job_text, height=300)
+    # Persist so the results survive the re-run that any widget click triggers.
+    st.session_state["results"] = {
+        "resume_text": resume_text,
+        "job_text": job_text,
+        "resume_clean": resume_clean,
+        "job_clean": job_clean,
+        "score": score,
+        "insight": insight,
+        "basic_report": basic_report,
+        "coverage_result": coverage_result,
+        "req_source": req_source,
+        "llm_result": llm_result,
+        "company_name": company_name,
+        "research": research,
+        "had_key": bool(api_key),
+    }
 
-    st.subheader("🧠 Suggested / Rewritten Resume")
-    st.text_area("", rewritten_resume, height=400)
+# ── Results ───────────────────────────────────────────────────────────────────
+results = st.session_state.get("results")
 
-else:
-    st.info("👆 Please upload both your resume and job description files to begin.")
+if results:
+    score = results["score"]
+    insight = results["insight"]
+
+    st.subheader("📊 Semantic Match Score")
+    st.caption(
+        "Cosine similarity between your resume and the posting, measured in "
+        "embedding space. It reflects how closely the two documents talk about "
+        "the same things — not how qualified you are."
+    )
+
+    score_pct = round(float(score) * 100, 1)
+    col_score, col_insight = st.columns([1, 3])
+    with col_score:
+        color = "green" if score_pct >= 70 else ("orange" if score_pct >= 55 else "red")
+        st.markdown(
+            f"<h1 style='color:{color}; text-align:center'>{score_pct}%</h1>",
+            unsafe_allow_html=True
+        )
+    with col_insight:
+        st.info(insight.get("interpretation", ""))
+
+        shared = sorted(set(results["resume_clean"]["skills"]) & set(results["job_clean"]["skills"]))
+        gap = sorted(set(results["job_clean"]["skills"]) - set(results["resume_clean"]["skills"]))
+        if shared:
+            st.markdown("**Skills you share with this posting:** " + ", ".join(shared))
+        if gap:
+            st.markdown("**Skills the posting wants that your resume doesn't show:** " + ", ".join(gap))
+
+    with st.expander("📝 Full keyword gap report (no AI — literal word comparison)"):
+        st.text(results["basic_report"])
+
+    st.divider()
+
+    # ── Requirement coverage ──────────────────────────────────────────────────
+    cov = results.get("coverage_result")
+    if cov and cov["requirements"]:
+        counts = cov["counts"]
+        total = len(cov["requirements"])
+
+        st.subheader("🎯 Requirement Coverage")
+        st.caption(
+            "Each requirement in the posting, matched against the individual lines "
+            "of your resume. Unlike the score above, this tells you *which* "
+            "requirement went unanswered and *which* line is your best evidence."
+        )
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Coverage", f"{cov['coverage']*100:.0f}%",
+                  help="Covered requirements, with partials counted as half")
+        m2.metric("✅ Covered", counts["covered"])
+        m3.metric("🟡 Partial", counts["partial"])
+        m4.metric("❌ Missing", counts["missing"])
+
+        if results.get("req_source") == "rules":
+            st.info(
+                "Requirements were extracted without AI (no API key), so the list is "
+                "rougher. Add a key in the sidebar for cleaner extraction.",
+                icon="ℹ️",
+            )
+
+        badge = {"covered": "✅", "partial": "🟡", "missing": "❌"}
+        for row in cov["requirements"]:
+            kind = "" if row.get("kind") == "required" else " · preferred"
+            header = f"{badge[row['status']]} {row['text']}{kind}"
+            with st.expander(header, expanded=False):
+                if row.get("reason"):
+                    st.markdown(f"**Verdict:** {row['reason']}")
+                if row.get("decided_by") == "literal":
+                    st.caption(
+                        "Decided by checking the words themselves, not by similarity — "
+                        "naming a specific technology or degree is something we can verify."
+                    )
+                else:
+                    st.caption(
+                        f"Decided by semantic similarity (score {row['score']:.2f}). "
+                        "This one is too general to check literally, so treat it as a "
+                        "suggestion and judge it yourself."
+                    )
+                if row["evidence"]:
+                    st.markdown("**Your best evidence:**")
+                    st.info(row["evidence"])
+                else:
+                    st.markdown("_Nothing in your resume matches this._")
+
+        idle = unmatched_bullets(cov)
+        if idle:
+            with st.expander(f"💤 {len(idle)} resume lines that matched nothing in this posting"):
+                st.caption(
+                    "Not necessarily weak lines — just the ones earning least against "
+                    "*this* role. Worth trimming if you need the space."
+                )
+                for b in idle:
+                    st.markdown(f"• {b}")
+
+        st.divider()
+
+    # ── LLM analysis ──────────────────────────────────────────────────────────
+    st.subheader("🤖 AI-Powered Analysis")
+
+    llm_result = results["llm_result"]
+
+    if not results["had_key"]:
+        st.warning("No API key found. Add your key in the sidebar to get the full AI analysis.")
+    elif llm_result is None or not llm_result.get("success"):
+        err = (llm_result or {}).get("error", "Unknown error")
+        st.error(f"AI analysis failed: {err}")
+    else:
+        # The LLM produces its OWN match score from reading both documents. It is
+        # a different measurement from the cosine score above — that one compares
+        # vectors, this one is a judgement. Showing them side by side, each with
+        # its own label, avoids the earlier bug where the LLM's explanation sat
+        # under the embedding score and appeared to be explaining it.
+        llm_score = llm_result.get("match_score")
+        if llm_score is not None:
+            col_a, col_b = st.columns(2)
+            col_a.metric("Semantic similarity", f"{score_pct}%", help="Cosine similarity of embeddings")
+            col_b.metric(f"{provider.title()} match score", f"{llm_score}%", help="The model's own judgement")
+            st.caption(
+                "These two can disagree — the first measures vocabulary and topic overlap, "
+                "the second is a judgement about your fit. A large gap is itself informative."
+            )
+
+        st.markdown(f"#### Why {provider.title()} gave that score")
+        st.write(llm_result.get("score_explanation", ""))
+
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            st.markdown("#### ✅ Highlight These")
+            st.caption("Skills you have — mention them more prominently")
+            items = llm_result.get("skills_to_highlight", [])
+            for item in items:
+                st.markdown(f"• {item}")
+            if not items:
+                st.caption("None identified")
+
+        with c2:
+            st.markdown("#### ➕ Add to Resume")
+            st.caption("Skills you likely have but didn't mention")
+            items = llm_result.get("skills_to_add", [])
+            for item in items:
+                st.markdown(f"• {item}")
+            if not items:
+                st.caption("None identified")
+
+        with c3:
+            st.markdown("#### 📚 Develop These")
+            st.caption("Genuine gaps — don't add these until you have them")
+            items = llm_result.get("skills_to_develop", [])
+            for item in items:
+                st.markdown(f"• {item}")
+            if not items:
+                st.caption("None identified")
+
+        bullets = llm_result.get("rewritten_bullets", [])
+        if bullets:
+            st.divider()
+            st.markdown("#### ✏️ Suggested Bullet Rewrites")
+            st.caption("Only use these if they accurately reflect your experience")
+            for b in bullets:
+                with st.expander(f"Original: {b.get('original', '')[:80]}..."):
+                    st.markdown(f"**Rewritten:** {b.get('rewritten', '')}")
+                    st.caption(f"Why: {b.get('reason', '')}")
+
+        advice = llm_result.get("overall_advice", "")
+        if advice:
+            st.divider()
+            st.markdown("#### 💡 Overall Advice")
+            st.info(advice)
+
+    st.divider()
+
+    # ── Company research ──────────────────────────────────────────────────────
+    st.subheader("🔍 Company Research")
+    st.caption("Use these facts to personalize your cover letter")
+
+    company_name = results["company_name"]
+    research = results["research"]
+
+    if not company_name:
+        st.info(
+            "Could not automatically detect the company name. "
+            "Research them manually for cover letter personalization."
+        )
+    elif research and research.get("success") and research.get("facts"):
+        st.markdown(f"**{company_name}**")
+        for fact in research["facts"]:
+            st.markdown(f"• {fact}")
+        st.caption(
+            "Tip: reference one of these facts in your cover letter opening "
+            "to show you've done your homework."
+        )
+    else:
+        st.warning(
+            f"Could not find public information for '{company_name}'. "
+            "Try searching them manually on LinkedIn or their website."
+        )
+
+    st.divider()
+
+    col_r, col_j = st.columns(2)
+    with col_r:
+        with st.expander("📄 Your Resume"):
+            st.text_area(
+                "Resume text", results["resume_text"], height=300,
+                key="resume_preview", label_visibility="collapsed"
+            )
+    with col_j:
+        with st.expander("💼 Job Description"):
+            st.text_area(
+                "Job description text", results["job_text"], height=300,
+                key="job_preview", label_visibility="collapsed"
+            )
