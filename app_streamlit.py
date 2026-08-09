@@ -339,12 +339,16 @@ if results:
             "requirement went unanswered and *which* line is your best evidence."
         )
 
-        m1, m2, m3, m4 = st.columns(4)
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Coverage", f"{cov['coverage']*100:.0f}%",
-                  help="Covered requirements, with partials counted as half")
+                  help="Covered requirements, partials counted as half. Personal-quality "
+                       "requirements are excluded — see 'Your call' below.")
         m2.metric("✅ Covered", counts["covered"])
         m3.metric("🟡 Partial", counts["partial"])
         m4.metric("❌ Missing", counts["missing"])
+        m5.metric("🤔 Your call", counts.get("judgement", 0),
+                  help="Personal qualities a resume can't settle. Shown with your closest "
+                       "evidence instead of a guessed verdict.")
 
         if results.get("req_source") == "rules":
             st.info(
@@ -353,14 +357,21 @@ if results:
                 icon="ℹ️",
             )
 
-        badge = {"covered": "✅", "partial": "🟡", "missing": "❌"}
+        badge = {"covered": "✅", "partial": "🟡", "missing": "❌", "judgement": "🤔"}
         for row in cov["requirements"]:
             kind = "" if row.get("kind") == "required" else " · preferred"
             header = f"{badge[row['status']]} {row['text']}{kind}"
             with st.expander(header, expanded=False):
                 if row.get("reason"):
                     st.markdown(f"**Verdict:** {row['reason']}")
-                if row.get("decided_by") == "literal":
+                if row.get("decided_by") == "judgement":
+                    st.caption(
+                        "No verdict on purpose. This asks about a personal quality, which a "
+                        "resume can't settle — and on this class of requirement two careful "
+                        "readers disagree, so any automatic answer would be a coin flip "
+                        "dressed up as a measurement. Your closest evidence is below."
+                    )
+                elif row.get("decided_by") == "literal":
                     st.caption(
                         "Decided by checking the words themselves, not by similarity — "
                         "naming a specific technology or degree is something we can verify."

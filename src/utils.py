@@ -9,7 +9,7 @@ could disagree about the same score. One definition, read from config.yaml.
 import re
 from functools import lru_cache
 
-from .config import SCORE_BANDS, SKILLS
+from .config import SCORE_BANDS, SKILL_ALIASES, SKILLS
 
 _VERDICTS = {
     "strong": "Excellent match — you're ready to apply.",
@@ -42,10 +42,16 @@ def skill_patterns():
 
     Lookarounds keep a skill from firing inside a longer word ("java" inside
     "javascript") while still matching when punctuation follows.
+
+    The alias map's keys are part of the vocabulary too. Without that, writing
+    `gradient boosting: [xgboost, lightgbm]` in skill_aliases.yaml had no
+    effect: "gradient boosting" was not a recognised skill, so the gate never
+    engaged and the alias never got a chance to fire.
     """
+    vocabulary = {s.lower() for s in SKILLS} | set(SKILL_ALIASES)
     return tuple(
-        (s.lower(), re.compile(r"(?<![a-z0-9])" + re.escape(s.lower()) + r"(?![a-z0-9])"))
-        for s in SKILLS
+        (s, re.compile(r"(?<![a-z0-9])" + re.escape(s) + r"(?![a-z0-9])"))
+        for s in sorted(vocabulary)
     )
 
 
@@ -71,3 +77,60 @@ def degree_level(text):
         if any(m in lowered for m in markers):
             return level
     return 0
+
+
+@lru_cache(maxsize=512)
+def _term_pattern(term):
+    return re.compile(r"(?<![a-z0-9])" + re.escape(term.lower()) + r"(?![a-z0-9])")
+
+
+def evidence_for(skill, text):
+    """Which term in `text` evidences `skill` — the skill itself or an alias.
+
+    Returns the matching term, or "" if nothing does. Aliases are one-way:
+    Git evidences "version control", but a posting asking for Git is not
+    satisfied by a resume that only says "version control".
+    """
+    lowered = text.lower()
+    skill = skill.lower()
+    if _term_pattern(skill).search(lowered):
+        return skill
+    for alias in SKILL_ALIASES.get(skill, ()):
+        if _term_pattern(alias).search(lowered):
+            return alias
+    return ""
+
+
+# Requirements phrased as personal qualities rather than checkable facts. A
+# resume cannot really settle "attention to detail", and the labelled eval set
+# shows why chasing them is futile: on that category two careful people
+# disagree, so the model is being scored against a coin flip. Better to hand
+# these to the reader with the closest evidence than to guess a verdict.
+_JUDGEMENT_PATTERNS = tuple(re.compile(p) for p in (
+    r"\b(strong|excellent|good|outstanding|exceptional|solid|great)\s+\w*\s*skills?\b",
+    r"\battention to detail\b",
+    r"\bdetail[- ]oriented\b",
+    r"\bfast[- ]paced\b",
+    r"\bself[- ](starter|directed|motivated)\b",
+    r"\bwork(s|ing)? (independently|autonomously)\b",
+    r"\b(passion|passionate|enthusiasm|curiosity|commitment|dedicated)\b",
+    r"\bteam player\b",
+    r"\bwork ethic\b",
+    r"\bability to (thrive|adapt|multitask|juggle)\b",
+    r"\b(adaptab|flexib)\w*\b",
+    r"\bproblem[- ]solving\b",
+    r"\bgrowth mindset\b",
+    r"\bproactive\b",
+    r"\bhighly motivated\b",
+    r"\b(excellent|strong|clear|effective)\s+(written|verbal|oral|interpersonal|communication)\b",
+    r"\bwritten and verbal\b",
+    r"\binterpersonal\b",
+    r"\bcross[- ]functional(ly)?\b",
+    r"\bteam (player|fit|spirit)\b",
+))
+
+
+def is_judgement_call(requirement):
+    """True if the requirement asks about a personal quality, not a fact."""
+    lowered = requirement.lower()
+    return any(p.search(lowered) for p in _JUDGEMENT_PATTERNS)

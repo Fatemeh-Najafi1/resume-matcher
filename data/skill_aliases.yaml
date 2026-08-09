@@ -1,0 +1,81 @@
+# Evidence map: which concrete terms count as evidence for a broader concept.
+#
+# The literal gate searches for the requirement's exact words. That made it
+# reject "work on natural language processing problems" against a bullet
+# reading "Built NLP tools..." — the letters did not match, so it vetoed.
+#
+# Each key is a concept a job posting might ask for. Each value lists terms
+# that, if present in the resume, count as evidence for it. Relationships are
+# one-way on purpose: Git evidences version control, but a posting asking for
+# Git is NOT satisfied by a resume that only says "version control".
+#
+# These only ever ADD matches, so recall can rise and precision cannot fall.
+#
+# NOTE: this is used by requirement matching only. The keyword gap report stays
+# strictly literal — if your resume never types "machine learning", that is
+# still worth telling you, because ATS keyword filters are literal too.
+
+version control: [git, github, gitlab, bitbucket, svn, mercurial]
+
+# A resume listing Python-only libraries has demonstrated Python, whether or
+# not it types the word.
+python: [pandas, numpy, scikit-learn, flask, django, fastapi, streamlit, nltk, pytorch, matplotlib, jupyter]
+
+documentation: [document, documented, documenting, technical writing, reproduction steps, runbook]
+technical writing: [documentation, documented, reproduction steps, write-up]
+
+containerisation: [docker, kubernetes, k8s, podman, containers, containerization]
+containerization: [docker, kubernetes, k8s, podman, containers, containerisation]
+
+natural language processing: [nlp, spacy, nltk, bert, sentence-transformers, text mining, tokenization, named entity recognition]
+nlp: [natural language processing, spacy, nltk, bert, sentence-transformers]
+
+transformer architectures: [bert, gpt, transformers, sentence-transformers, attention mechanism, roberta, distilbert]
+transformers: [bert, gpt, sentence-transformers, roberta, distilbert]
+
+gradient boosting: [xgboost, lightgbm, catboost, gradient boosted trees, boosted trees]
+
+deep learning: [pytorch, tensorflow, keras, neural network, neural networks, bert, cnn, rnn, lstm, transformer]
+neural networks: [deep learning, pytorch, tensorflow, keras, bert, cnn, rnn, lstm]
+
+machine learning: [scikit-learn, sklearn, xgboost, lightgbm, random forest, k-means, logistic regression, deep learning, pytorch, tensorflow, classification model, predictive model]
+# No bare "ml" key on purpose. Two-letter concepts fire on almost any posting
+# ("AI/ML libraries", "ML team"), and because alias keys are vocabulary the gate
+# then rules on them. That turned "contribute to the team's AI/ML libraries"
+# into "covered — found ml (via scikit-learn)", which is not what using
+# scikit-learn means. Same reasoning as excluding bare "go" and "r".
+
+distributed computing: [spark, hadoop, dask, ray, mapreduce]
+big data: [spark, hadoop, redshift, bigquery, snowflake]
+
+cloud infrastructure: [aws, azure, gcp, google cloud, lambda, s3, redshift, ec2]
+cloud platforms: [aws, azure, gcp, google cloud]
+
+statistics: [statistical, logistic regression, linear regression, hypothesis testing, probability, bayesian, a/b testing]
+statistical modelling: [logistic regression, linear regression, random forest, regression]
+statistical modeling: [logistic regression, linear regression, random forest, regression]
+
+data visualisation: [matplotlib, seaborn, plotly, tableau, power bi, dashboard, dashboards, data visualization]
+data visualization: [matplotlib, seaborn, plotly, tableau, power bi, dashboard, dashboards]
+
+ci/cd: [jenkins, github actions, gitlab ci, continuous integration, continuous deployment, circleci]
+
+relational databases: [sql, postgresql, mysql, sqlite, mssql, oracle, relational database]
+relational database design: [normalized, normalised, schema design, entity relationship, sql]
+
+rest api: [restful, api endpoint, flask, fastapi, express, django rest]
+web development: [html, css, javascript, react, angular, vue, flask, django, next.js]
+
+testing: [pytest, unit test, unit testing, integration testing, qa, quality assurance, test case]
+quality assurance: [qa, testing, test case, defect, regression testing]
+
+data engineering: [etl, airflow, pipeline, data pipeline, spark, kafka]
+etl: [extract transform load, data pipeline, airflow]
+
+mlops: [model monitoring, model deployment, mlflow, kubeflow, data drift, ci/cd]
+
+object oriented programming: [oop, classes, inheritance, polymorphism]
+oop: [object oriented programming, object-oriented]
+
+algorithms: [data structures, complexity analysis, big-o, dynamic programming, sorting, graph traversal]
+data structures: [algorithms, linked list, hash table, binary tree, graph]

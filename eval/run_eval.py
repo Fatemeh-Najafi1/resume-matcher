@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.Embedder import Embedder                       # noqa: E402
 from src.Matcher import hard_gate                       # noqa: E402
+from src.utils import is_judgement_call                 # noqa: E402
 
 PAIRS_PATH = Path(__file__).resolve().parent.parent / "data" / "eval" / "pairs.jsonl"
 
@@ -279,6 +280,7 @@ def main():
             folds[i % 5].append(i)
 
         agg = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
+        agg_ans = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
         for k in range(5):
             test_idx = set(folds[k])
             train_idx = [i for i in range(len(pairs)) if i not in test_idx]
@@ -303,11 +305,80 @@ def main():
             for key in agg:
                 agg[key] += m[key]
 
-        p = agg["tp"] / (agg["tp"] + agg["fp"]) if agg["tp"] + agg["fp"] else 0.0
-        r = agg["tp"] / (agg["tp"] + agg["fn"]) if agg["tp"] + agg["fn"] else 0.0
-        f1 = 2 * p * r / (p + r) if p + r else 0.0
-        print(f"  {name + ' + gate':<24} P {p:.2f}  R {r:.2f}  F1 {f1:.2f}   "
-              f"(fp {agg['fp']}, fn {agg['fn']})")
+            # same folds, restricted to requirements the app will actually rule on
+            keep = [n for n, i in enumerate(sorted(test_idx))
+                    if not is_judgement_call(pairs[i]["requirement"])]
+            sm = prf([preds[n] for n in keep], [test_labels[n] for n in keep])
+            for key in agg_ans:
+                agg_ans[key] += sm[key]
+
+        def summarise(a):
+            p = a["tp"] / (a["tp"] + a["fp"]) if a["tp"] + a["fp"] else 0.0
+            r = a["tp"] / (a["tp"] + a["fn"]) if a["tp"] + a["fn"] else 0.0
+            return p, r, (2 * p * r / (p + r) if p + r else 0.0)
+
+        p, r, f1 = summarise(agg)
+        pa, ra, f1a = summarise(agg_ans)
+        print(f"  {name + ' + gate':<24} all P {p:.2f} R {r:.2f} F1 {f1:.2f}  |  "
+              f"answerable-only P {pa:.2f} R {ra:.2f} F1 {f1a:.2f}  "
+              f"(fp {agg_ans['fp']}, fn {agg_ans['fn']})")
+
+    # The app no longer issues a verdict on personal-quality requirements — it
+    # shows the closest evidence and lets the reader decide. Scoring itself on
+    # those pairs measures agreement with a coin flip, so report both figures
+    # and be explicit about which is which.
+    answerable = [i for i, p in enumerate(pairs) if not is_judgement_call(p["requirement"])]
+    withheld = len(pairs) - len(answerable)
+    print(f"\nExcluding {withheld} personal-quality requirements the app now declines to judge:")
+    for name, (m, preds, _) in sorted(results.items(), key=lambda kv: -kv[1][0]["f1"]):
+        sub_preds = [preds[i] for i in answerable]
+        sub_labels = [labels[i] for i in answerable]
+        sm = prf(sub_preds, sub_labels)
+        print(f"  {name:<34} P {sm['precision']:.2f}  R {sm['recall']:.2f}  "
+              f"F1 {sm['f1']:.2f}  acc {sm['accuracy']:.2f}   (fp {sm['fp']}, fn {sm['fn']})")
+
+    # The cross-encoder is precise and misses a lot; NLI catches more and is
+    # looser. They fail on different pairs, which is exactly the situation where
+    # combining beats choosing. The literal gate still overrides both; a small
+    # logistic regression only arbitrates the pairs the gate declines to decide.
+    if ce is not None and nli_curve is not None:
+        try:
+            from sklearn.linear_model import LogisticRegression
+
+            gate_status = [hard_gate(p["requirement"], p["bullet"])[0] for p in pairs]
+            soft = [i for i, s in enumerate(gate_status)
+                    if s is None and not is_judgement_call(pairs[i]["requirement"])]
+
+            X = np.array([[bi[i], ce[i], nli[i]] for i in soft])
+            y = np.array([labels[i] for i in soft])
+
+            preds = list(labels)          # start from truth, overwrite below
+            for i, s in enumerate(gate_status):
+                preds[i] = 1 if s == "covered" else 0
+
+            # 5-fold CV so the reported number is not fitted to itself
+            folds = [soft[k::5] for k in range(5)]
+            for k in range(5):
+                test = folds[k]
+                train = [i for i in soft if i not in set(test)]
+                if not test or len(set(labels[i] for i in train)) < 2:
+                    continue
+                clf = LogisticRegression(max_iter=1000, class_weight="balanced")
+                clf.fit(np.array([[bi[i], ce[i], nli[i]] for i in train]),
+                        np.array([labels[i] for i in train]))
+                probs = clf.predict_proba(np.array([[bi[i], ce[i], nli[i]] for i in test]))[:, 1]
+                for idx, pr in zip(test, probs):
+                    preds[idx] = int(pr >= 0.5)
+
+            m = prf(preds, labels)
+            sub = prf([preds[i] for i in answerable], [labels[i] for i in answerable])
+            print("\nEnsemble (gate override + logistic regression over cosine/CE/NLI), 5-fold CV:")
+            print(f"  all pairs                          P {m['precision']:.2f}  R {m['recall']:.2f}  "
+                  f"F1 {m['f1']:.2f}   (fp {m['fp']}, fn {m['fn']})")
+            print(f"  excluding judgement calls          P {sub['precision']:.2f}  R {sub['recall']:.2f}  "
+                  f"F1 {sub['f1']:.2f}   (fp {sub['fp']}, fn {sub['fn']})")
+        except Exception as e:
+            print(f"\n  (ensemble unavailable: {type(e).__name__}: {str(e)[:120]})")
 
     best_name = max(results.items(), key=lambda kv: kv[1][0]["f1"])[0]
     print(f"\nPer-category accuracy for the winner ({best_name}):")

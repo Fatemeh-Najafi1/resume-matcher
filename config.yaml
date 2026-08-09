@@ -29,17 +29,17 @@ scoring:
 #
 #   threshold   precision  recall
 #     0.55         1.00      0.39   <- original guess
-#     0.40         0.93      0.49
-#     0.38         0.91      0.57   <- covered
-#     0.30         0.82      0.71   <- partial
-#     0.24         0.76      0.80      precision falls away below here
+#     0.40         0.95      0.72
+#     0.36         0.95      0.75   <- covered
+#     0.28         0.87      0.80   <- partial
+#     0.24         0.76      0.83      precision falls away below here
 #
 # Precision is weighted over recall on purpose: a false "covered" tells someone
 # they meet a requirement they do not, which is the failure this project exists
 # to prevent. Re-run the eval after changing anything here.
 matching:
-  covered: 0.38
-  partial: 0.30
+  covered: 0.36
+  partial: 0.28
 
   # Optional cross-encoder reranking. Set model to an empty string to disable
   # and fall back to bi-encoder cosine (also happens automatically if the model

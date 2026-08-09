@@ -59,6 +59,8 @@ Three decisions that aren't obvious from the code:
 
 **The Cleaner emits two views of each document.** `clean_text` keeps stopwords and goes to the Embedder — MiniLM was trained on natural sentences, so stripping "and"/"with"/"of" degrades the vector rather than sharpening it. `keywords` has stopwords removed and goes to the Generator, where the comparison is a literal set difference and filler words would swamp the result.
 
+**Three things are checked literally rather than judged by similarity:** named technologies (does the resume actually say PyTorch?), degree level (a Master's does not satisfy a PhD), and duration demands. That last one matters — "at least 1 year of machine learning research" is *not* satisfied by having listed scikit-learn, so those cap at partial rather than claiming the years are proven.
+
 **Requirements naming a technology or degree are decided literally, not by similarity.** Cosine answers *"is this similar work?"* well and *"do they know this specific thing?"* badly. The phrase "experience using frameworks such as PyTorch" scores **0.57** against a resume line listing `scikit-learn, NLTK` — high enough that similarity alone reported PyTorch as covered when the resume never mentions it. Presence is checkable, so it gets checked.
 
 **The thresholds are measured, not chosen.** See Evaluation below.
@@ -71,13 +73,19 @@ Three decisions that aren't obvious from the code:
 
 Every threshold in `config.yaml` comes from that sweep. The first version of this project set them by eye, and the eval showed how badly: the original 0.55 scored **precision 1.00 at recall 0.20** — it missed four out of five genuine matches.
 
-5-fold cross-validated (threshold tuned on train folds, measured on held-out):
+5-fold cross-validated, threshold tuned on train folds only. "Answerable" excludes requirements about personal qualities, which the app declines to rule on (see below):
 
-| Scorer | Precision | Recall | F1 |
-|---|---|---|---|
-| bi-encoder + literal gate | 0.90 | 0.53 | 0.67 |
-| **cross-encoder + literal gate** | **0.92** | **0.65** | **0.76** |
-| NLI entailment + literal gate | 0.92 | 0.67 | 0.77 |
+| Scorer | Precision | Recall | Answerable P | Answerable R |
+|---|---|---|---|---|
+| bi-encoder + literal gate | 0.90 | 0.73 | 0.90 | 0.78 |
+| **cross-encoder + literal gate** | **0.91** | **0.82** | **0.93** | **0.89** |
+| NLI entailment + literal gate | 0.89 | 0.82 | 0.93 | 0.89 |
+
+For comparison, the original hand-picked threshold scored **precision 1.00 at recall 0.20**.
+
+**Two requirements the app refuses to answer automatically.** "Attention to detail" and "ability to thrive in a fast-paced environment" cannot be settled by a resume. Worse, when labelling the eval set I found my *own* judgements on that category inconsistent — I marked mentoring as evidence of "team leadership" but not of "works in a fast-paced environment". If two careful readers disagree, a model scored against those labels is being graded on a coin flip. Those requirements are now surfaced with the closest matching resume line and no verdict, and excluded from the coverage figure.
+
+**Caveat, stated plainly:** the final round of fixes — the alias map, and treating alias keys as vocabulary — was made *after* looking at which pairs the matcher got wrong. That is test-set contamination, and it means these numbers are optimistic. They are honest about direction and ranking; they need a fresh, unseen set of labelled pairs to be trusted as absolute values.
 
 Two things worth knowing about how those numbers were reached:
 

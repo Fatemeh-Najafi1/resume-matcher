@@ -35,7 +35,7 @@ import numpy as np
 
 from . import Reranker
 from .config import MATCH_THRESHOLDS, RERANKER
-from .utils import degree_level, find_skills
+from .utils import degree_level, evidence_for, find_skills, is_judgement_call
 
 # Lines that are structure, not content.
 _HEADING = re.compile(
@@ -46,6 +46,11 @@ _HEADING = re.compile(
 )
 
 _MIN_BULLET_WORDS = 5
+
+# "at least 1 year", "3+ years", "minimum of two years" — a duration demand.
+_DURATION = re.compile(
+    r"\b(?:\d+\+?|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*(?:year|yr)s?\b"
+)
 
 
 def split_bullets(resume_text):
@@ -100,15 +105,38 @@ def hard_gate(requirement_text, resume_text):
     if not named:
         return None, "", []
 
-    in_resume = set(find_skills(resume_text))
-    present = [s for s in named if s in in_resume]
-    absent = [s for s in named if s not in in_resume]
+    # A skill counts as present if the resume names it OR names something that
+    # evidences it: Git for "version control", NLP for "natural language
+    # processing". Without this the gate rejected a bullet reading "Built NLP
+    # tools" against a requirement spelling the phrase out in full.
+    present, absent, via = [], [], {}
+    for skill in named:
+        match = evidence_for(skill, resume_text)
+        if match:
+            present.append(skill)
+            if match != skill:
+                via[skill] = match
+        else:
+            absent.append(skill)
+
+    def describe(skills):
+        return ", ".join(f"{s} (via {via[s]})" if s in via else s for s in skills)
 
     if not present:
         return "missing", "not found in your resume: " + ", ".join(named), []
     if absent:
-        return "partial", "found " + ", ".join(present) + "; missing " + ", ".join(absent), present
-    return "covered", "found " + ", ".join(present), present
+        return "partial", "found " + describe(present) + "; missing " + ", ".join(absent), present
+
+    # "At least 1 year of machine learning research" is not satisfied by having
+    # touched scikit-learn. Naming the skill is necessary but not sufficient
+    # when the posting also demands a duration, so cap these at partial rather
+    # than claiming the years are proven. Same principle as the degree check.
+    if _DURATION.search(requirement_text.lower()):
+        return ("partial",
+                "found " + describe(present) + ", but this asks for a specific amount of "
+                "experience, which a skills list cannot prove", present)
+
+    return "covered", "found " + describe(present), present
 
 
 def _cosine_matrix(a, b):
@@ -186,7 +214,7 @@ def match(requirements, bullets, embedder, resume_text=None):
     full_resume = resume_text if resume_text is not None else "\n".join(bullets)
 
     rows = []
-    counts = {"covered": 0, "partial": 0, "missing": 0}
+    counts = {"covered": 0, "partial": 0, "missing": 0, "judgement": 0}
     for i, requirement in enumerate(requirements):
         best = int(np.argmax(decision_scores[i]))
         score = float(decision_scores[i][best])
@@ -195,19 +223,27 @@ def match(requirements, bullets, embedder, resume_text=None):
         status, reason, present = hard_gate(requirement["text"], full_resume)
         decided_by = "literal" if status else "similarity"
         if status is None:
-            if score >= covered_at:
+            if is_judgement_call(requirement["text"]):
+                # Not answerable from a resume, and pretending otherwise is how
+                # a tool loses trust. Surface the closest evidence and let the
+                # reader decide.
+                status, decided_by = "judgement", "judgement"
+                reason = "a personal quality rather than a checkable fact — your call"
+            elif score >= covered_at:
                 status = "covered"
             elif score >= partial_at:
                 status = "partial"
             else:
                 status = "missing"
-        counts[status] += 1
+        counts[status] = counts.get(status, 0) + 1
 
         # Evidence must support the verdict it's shown under. When the verdict
         # came from finding a named skill, cite a bullet that actually contains
         # that skill — otherwise "found python" gets illustrated with whichever
         # unrelated line happened to score highest.
         evidence_index = best if status != "missing" else -1
+        if status == "judgement":
+            evidence_index = best   # always show the closest line, verdict withheld
         if present:
             supporting = [k for k, b in enumerate(bullets) if set(find_skills(b)) & set(present)]
             if supporting:
@@ -225,15 +261,20 @@ def match(requirements, bullets, embedder, resume_text=None):
             evidence_index=evidence_index,
         ))
 
-    coverage = (counts["covered"] + 0.5 * counts["partial"]) / len(requirements)
+    # Judgement calls are excluded from the denominator. Counting them either
+    # way would be a guess dressed up as a measurement, and it would make the
+    # headline number depend on how many soft skills the posting happened to
+    # list rather than on the candidate.
+    decidable = len(requirements) - counts["judgement"]
+    coverage = ((counts["covered"] + 0.5 * counts["partial"]) / decidable) if decidable else 0.0
 
     # Strongest evidence first inside each status group, so the reader sees the
     # clearest wins and the starkest gaps rather than posting order.
-    order = {"missing": 0, "partial": 1, "covered": 2}
+    order = {"missing": 0, "partial": 1, "covered": 2, "judgement": 3}
     rows.sort(key=lambda r: (order[r["status"]], -r["score"]))
 
     return {"requirements": rows, "bullets": bullets, "scorer": scorer,
-            "coverage": coverage, "counts": counts}
+            "coverage": coverage, "counts": counts, "decidable": decidable}
 
 
 def unmatched_bullets(result):

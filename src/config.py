@@ -23,8 +23,8 @@ _DEFAULTS = {
     },
     "matching": {
         # Calibrated by eval/run_eval.py — see the note in config.yaml.
-        "covered": 0.38,
-        "partial": 0.30,
+        "covered": 0.36,
+        "partial": 0.28,
         "reranker": {
             "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
             "covered": -10.70,
@@ -111,3 +111,27 @@ def load_skills():
 
 
 SKILLS = load_skills()
+
+ALIASES_PATH = PROJECT_ROOT / "data" / "skill_aliases.yaml"
+
+
+def load_aliases():
+    """concept -> set of terms that count as evidence for it. See the YAML."""
+    try:
+        import yaml
+    except ImportError:
+        return {}
+    if not ALIASES_PATH.exists():
+        return {}
+    try:
+        with open(ALIASES_PATH, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+    return {
+        str(concept).lower(): {str(t).lower() for t in (terms or [])}
+        for concept, terms in raw.items()
+    }
+
+
+SKILL_ALIASES = load_aliases()
