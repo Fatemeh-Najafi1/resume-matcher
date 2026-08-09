@@ -22,8 +22,14 @@ _DEFAULTS = {
         "partial": 0.55,
     },
     "matching": {
-        "covered": 0.55,
-        "partial": 0.40,
+        # Calibrated by eval/run_eval.py — see the note in config.yaml.
+        "covered": 0.38,
+        "partial": 0.30,
+        "reranker": {
+            "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            "covered": -10.70,
+            "partial": -11.20,
+        },
     },
     "cleaning": {
         "stopwords_extra": [],
@@ -79,6 +85,13 @@ SCORE_BANDS = {
 MATCH_THRESHOLDS = {
     "covered": float(_cfg["matching"]["covered"]),
     "partial": float(_cfg["matching"]["partial"]),
+}
+
+_reranker = _cfg["matching"].get("reranker") or {}
+RERANKER = {
+    "model": (_reranker.get("model") or "").strip(),
+    "covered": float(_reranker.get("covered", -10.70)),
+    "partial": float(_reranker.get("partial", -11.20)),
 }
 
 STOPWORDS_EXTRA = list(_cfg["cleaning"]["stopwords_extra"])

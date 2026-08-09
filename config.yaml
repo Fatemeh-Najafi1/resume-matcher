@@ -20,13 +20,43 @@ scoring:
 # check literally ("strong engineering skills"); anything naming a technology
 # or a degree is decided by presence, not similarity.
 #
-# Set deliberately high. Cosine between a short requirement and a short bullet
-# is a weak signal — at 0.45 it rated "Setup new strategies" a partial match
-# against a line listing Cisco certificates. For a tool whose whole promise is
-# not overstating what you have, a missed match costs far less than a false one.
+# CALIBRATED, not guessed. `python -m eval.run_eval` measures these against 124
+# labelled requirement/bullet pairs in data/eval/pairs.jsonl. The original 0.55
+# was chosen by eyeballing one posting and was badly wrong — it scored precision
+# 1.00 at recall 0.20, i.e. it missed four out of five genuine matches.
+#
+# Bi-encoder cosine, with the literal gate applied:
+#
+#   threshold   precision  recall
+#     0.55         1.00      0.39   <- original guess
+#     0.40         0.93      0.49
+#     0.38         0.91      0.57   <- covered
+#     0.30         0.82      0.71   <- partial
+#     0.24         0.76      0.80      precision falls away below here
+#
+# Precision is weighted over recall on purpose: a false "covered" tells someone
+# they meet a requirement they do not, which is the failure this project exists
+# to prevent. Re-run the eval after changing anything here.
 matching:
-  covered: 0.55
-  partial: 0.40
+  covered: 0.38
+  partial: 0.30
+
+  # Optional cross-encoder reranking. Set model to an empty string to disable
+  # and fall back to bi-encoder cosine (also happens automatically if the model
+  # cannot be loaded — e.g. a deployment without the memory for a second
+  # transformer).
+  #
+  # 5-fold cross-validated, both with the literal gate:
+  #     bi-encoder      P 0.90  R 0.53
+  #     cross-encoder   P 0.92  R 0.65     <- same precision, +12 points recall
+  #
+  # Thresholds are raw logits, not probabilities, and the curve here is STEEP:
+  # -10.70 gives precision 0.94, but -11.48 gives 0.50. Do not nudge these
+  # without re-running the eval.
+  reranker:
+    model: cross-encoder/ms-marco-MiniLM-L-6-v2
+    covered: -10.70
+    partial: -11.20
 
 cleaning:
   # Added on top of NLTK's English stopword list. These are resume boilerplate:

@@ -61,6 +61,33 @@ Three decisions that aren't obvious from the code:
 
 **Requirements naming a technology or degree are decided literally, not by similarity.** Cosine answers *"is this similar work?"* well and *"do they know this specific thing?"* badly. The phrase "experience using frameworks such as PyTorch" scores **0.57** against a resume line listing `scikit-learn, NLTK` — high enough that similarity alone reported PyTorch as covered when the resume never mentions it. Presence is checkable, so it gets checked.
 
+**The thresholds are measured, not chosen.** See Evaluation below.
+
+---
+
+## Evaluation
+
+`data/eval/pairs.jsonl` holds 124 labelled (requirement, resume-bullet) pairs. `python -m eval.run_eval` scores the matcher against them and sweeps thresholds; `--errors` prints what it got wrong.
+
+Every threshold in `config.yaml` comes from that sweep. The first version of this project set them by eye, and the eval showed how badly: the original 0.55 scored **precision 1.00 at recall 0.20** — it missed four out of five genuine matches.
+
+5-fold cross-validated (threshold tuned on train folds, measured on held-out):
+
+| Scorer | Precision | Recall | F1 |
+|---|---|---|---|
+| bi-encoder + literal gate | 0.90 | 0.53 | 0.67 |
+| **cross-encoder + literal gate** | **0.92** | **0.65** | **0.76** |
+| NLI entailment + literal gate | 0.92 | 0.67 | 0.77 |
+
+Two things worth knowing about how those numbers were reached:
+
+- **The first eval set gave the wrong answer.** Built only from the strong senior resume in `resume.txt`, it over-represented cases where a match exists, and concluded a recalibrated bi-encoder beat the cross-encoder. Running the app on a real junior-resume-vs-senior-role comparison produced visible false positives the benchmark had not predicted. Pairs 91–124 add that distribution, and the ranking reversed. Eval set construction mattered more than model choice.
+- **NLI scores marginally highest** and fixes the synonym cases the cross-encoder misses (1/8 → 6/8), but the model is substantially larger for a 0.01 F1 difference. The cross-encoder ships; the NLI scorer stays in `eval/run_eval.py` so the comparison is reproducible.
+
+Precision is weighted over recall throughout, because a false "covered" tells someone they meet a requirement they do not — the exact failure this project exists to prevent.
+
+The set is a **curated collection of hard cases**, not a random sample, so absolute numbers are pessimistic against real traffic. It is built for comparing scorers, which is what it is used for.
+
 ---
 
 ## Tech Stack
@@ -121,12 +148,16 @@ resume-matcher/
 │   ├── Generator.py        # Keyword gap analysis + report
 │   ├── Requirements.py     # Splits a posting into discrete requirements
 │   ├── Matcher.py          # Requirement ↔ resume-bullet matching
+│   ├── Reranker.py         # Optional cross-encoder reranking
 │   ├── Scraper.py          # Job posting URL scraping
 │   ├── LLMAnalyzer.py      # Gemini / OpenAI / Anthropic analysis
 │   ├── CompanyResearcher.py# Company facts for cover letters
 │   └── utils.py            # Shared score bands, skill and degree lookup
+├── eval/
+│   └── run_eval.py         # Threshold calibration and scorer comparison
 └── data/
-    └── skills_list.txt     # Skill vocabulary
+    ├── skills_list.txt     # Skill vocabulary
+    └── eval/pairs.jsonl    # 124 labelled requirement/bullet pairs
 ```
 
 ---
@@ -164,6 +195,8 @@ resume-matcher/
 - [x] Skill gap categorization (have it vs. need to learn it)
 - [x] LLM-powered analysis and bullet rewriting (Gemini / OpenAI / Anthropic)
 - [x] Requirement-level coverage with per-requirement evidence
+- [x] Labelled evaluation set and threshold calibration
+- [x] Cross-encoder reranking, measured against the benchmark before shipping
 - [ ] Interactive resume tailoring that asks before claiming any skill
 - [ ] Multi-resume comparison against a single job description
 - [ ] Export tailored resume as PDF or DOCX

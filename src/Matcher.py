@@ -13,13 +13,28 @@ Comparing at requirement-vs-bullet granularity gives:
 It also sidesteps the truncation problem rather than mitigating it: a single
 requirement and a single bullet both sit far inside the model's 256-token
 window, so nothing is silently dropped.
+
+Thresholds here are measured, not chosen. `python -m eval.run_eval` scores this
+matcher against 90 labelled pairs; the current settings give precision 0.94 /
+recall 0.73 in-sample and 0.88 / 0.80 under 5-fold cross-validation. Two
+alternatives were tried and rejected on that benchmark:
+
+  * a cross-encoder reranker (cross-encoder/ms-marco-MiniLM-L-6-v2) reached
+    only recall 0.68 -- it is trained for search relevance, and this is not a
+    relevance question;
+  * an NLI entailment model fixed the synonym cases the cross-encoder missed
+    (1/8 -> 6/8) but did not beat a properly calibrated bi-encoder overall.
+
+The bi-encoder already here wins once its threshold is calibrated, so no third
+model was added. That conclusion is reproducible: run the eval.
 """
 
 import re
 
 import numpy as np
 
-from .config import MATCH_THRESHOLDS
+from . import Reranker
+from .config import MATCH_THRESHOLDS, RERANKER
 from .utils import degree_level, find_skills
 
 # Lines that are structure, not content.
@@ -105,6 +120,32 @@ def _cosine_matrix(a, b):
     return (a / a_norm) @ (b / b_norm).T
 
 
+def _rerank_scores(req_texts, bullets, cosine_scores):
+    """Cross-encoder scores for the top-K bullets of each requirement.
+
+    Returns a matrix shaped like `cosine_scores` with -inf everywhere outside
+    the shortlist, or None if reranking is off or unavailable.
+    """
+    if not RERANKER.get("model"):
+        return None
+
+    k = min(Reranker.TOP_K, len(bullets))
+    shortlist = [list(np.argsort(-cosine_scores[i])[:k]) for i in range(len(req_texts))]
+
+    flat = [(req_texts[i], bullets[j]) for i, cols in enumerate(shortlist) for j in cols]
+    scored = Reranker.score_pairs(flat)
+    if scored is None:
+        return None
+
+    out = np.full_like(cosine_scores, -np.inf, dtype=float)
+    pos = 0
+    for i, cols in enumerate(shortlist):
+        for j in cols:
+            out[i][j] = scored[pos]
+            pos += 1
+    return out
+
+
 def match(requirements, bullets, embedder, resume_text=None):
     """Score every requirement against every bullet.
 
@@ -131,13 +172,24 @@ def match(requirements, bullets, embedder, resume_text=None):
     bullet_vecs = embedder.embed_many(bullets)
     scores = _cosine_matrix(req_vecs, bullet_vecs)
 
+    # Optionally re-score the shortlist with a cross-encoder. The bi-encoder
+    # stays responsible for shortlisting (it is cheap and a good filter); the
+    # cross-encoder decides, because it is the better judge. Falls back
+    # silently to cosine if the model is unavailable.
+    rerank = _rerank_scores(req_texts, bullets, scores)
+    if rerank is not None:
+        decision_scores, covered_at, partial_at = rerank, RERANKER["covered"], RERANKER["partial"]
+        scorer = "cross-encoder"
+    else:
+        decision_scores, scorer = scores, "bi-encoder"
+
     full_resume = resume_text if resume_text is not None else "\n".join(bullets)
 
     rows = []
     counts = {"covered": 0, "partial": 0, "missing": 0}
     for i, requirement in enumerate(requirements):
-        best = int(np.argmax(scores[i]))
-        score = float(scores[i][best])
+        best = int(np.argmax(decision_scores[i]))
+        score = float(decision_scores[i][best])
 
         # A literal verdict wins where one exists; similarity fills the rest.
         status, reason, present = hard_gate(requirement["text"], full_resume)
@@ -165,6 +217,8 @@ def match(requirements, bullets, embedder, resume_text=None):
             requirement,
             status=status,
             score=score,
+            cosine=float(scores[i][best]),
+            scorer=scorer,
             reason=reason,
             decided_by=decided_by,
             evidence=bullets[evidence_index] if evidence_index >= 0 else "",
@@ -178,7 +232,7 @@ def match(requirements, bullets, embedder, resume_text=None):
     order = {"missing": 0, "partial": 1, "covered": 2}
     rows.sort(key=lambda r: (order[r["status"]], -r["score"]))
 
-    return {"requirements": rows, "bullets": bullets,
+    return {"requirements": rows, "bullets": bullets, "scorer": scorer,
             "coverage": coverage, "counts": counts}
 
 

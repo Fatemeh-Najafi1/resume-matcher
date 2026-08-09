@@ -366,10 +366,12 @@ if results:
                         "naming a specific technology or degree is something we can verify."
                     )
                 else:
+                    engine = cov.get("scorer", "bi-encoder")
                     st.caption(
-                        f"Decided by semantic similarity (score {row['score']:.2f}). "
+                        f"Decided by semantic similarity ({engine}, score {row['score']:.2f}). "
                         "This one is too general to check literally, so treat it as a "
-                        "suggestion and judge it yourself."
+                        "suggestion and judge it yourself — measured precision on this "
+                        "class of decision is about 0.9, not 1.0."
                     )
                 if row["evidence"]:
                     st.markdown("**Your best evidence:**")
