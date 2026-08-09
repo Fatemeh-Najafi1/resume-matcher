@@ -59,9 +59,15 @@ Three decisions that aren't obvious from the code:
 
 **The Cleaner emits two views of each document.** `clean_text` keeps stopwords and goes to the Embedder — MiniLM was trained on natural sentences, so stripping "and"/"with"/"of" degrades the vector rather than sharpening it. `keywords` has stopwords removed and goes to the Generator, where the comparison is a literal set difference and filler words would swamp the result.
 
-**Three things are checked literally rather than judged by similarity:** named technologies (does the resume actually say PyTorch?), degree level (a Master's does not satisfy a PhD), and duration demands. That last one matters — "at least 1 year of machine learning research" is *not* satisfied by having listed scikit-learn, so those cap at partial rather than claiming the years are proven.
+**Some things are checked literally rather than judged by similarity.** Cosine answers *"is this similar work?"* well and *"do they know this specific thing?"* badly — "experience using frameworks such as PyTorch" scores **0.57** against a resume line reading `scikit-learn, NLTK`, high enough that similarity alone reported PyTorch as covered when the resume never mentions it. Three classes are therefore decided by inspection, not by vectors:
 
-**Requirements naming a technology or degree are decided literally, not by similarity.** Cosine answers *"is this similar work?"* well and *"do they know this specific thing?"* badly. The phrase "experience using frameworks such as PyTorch" scores **0.57** against a resume line listing `scikit-learn, NLTK` — high enough that similarity alone reported PyTorch as covered when the resume never mentions it. Presence is checkable, so it gets checked.
+| Class | Rule |
+|---|---|
+| Named technology | Is the word actually there, or an alias of it? |
+| Degree level | A Master's does not satisfy a PhD |
+| Duration demand | "1 year of ML research" is not proven by listing scikit-learn — capped at partial |
+
+**And some things aren't decided at all.** "Attention to detail" cannot be settled by a resume, so the app shows the closest matching line and withholds a verdict. See Evaluation for why that turned out to be the honest choice rather than a cop-out.
 
 **The thresholds are measured, not chosen.** See Evaluation below.
 
@@ -83,18 +89,25 @@ Every threshold in `config.yaml` comes from that sweep. The first version of thi
 
 For comparison, the original hand-picked threshold scored **precision 1.00 at recall 0.20**.
 
-**Two requirements the app refuses to answer automatically.** "Attention to detail" and "ability to thrive in a fast-paced environment" cannot be settled by a resume. Worse, when labelling the eval set I found my *own* judgements on that category inconsistent — I marked mentoring as evidence of "team leadership" but not of "works in a fast-paced environment". If two careful readers disagree, a model scored against those labels is being graded on a coin flip. Those requirements are now surfaced with the closest matching resume line and no verdict, and excluded from the coverage figure.
-
-**Caveat, stated plainly:** the final round of fixes — the alias map, and treating alias keys as vocabulary — was made *after* looking at which pairs the matcher got wrong. That is test-set contamination, and it means these numbers are optimistic. They are honest about direction and ranking; they need a fresh, unseen set of labelled pairs to be trusted as absolute values.
-
-Two things worth knowing about how those numbers were reached:
-
-- **The first eval set gave the wrong answer.** Built only from the strong senior resume in `resume.txt`, it over-represented cases where a match exists, and concluded a recalibrated bi-encoder beat the cross-encoder. Running the app on a real junior-resume-vs-senior-role comparison produced visible false positives the benchmark had not predicted. Pairs 91–124 add that distribution, and the ranking reversed. Eval set construction mattered more than model choice.
-- **NLI scores marginally highest** and fixes the synonym cases the cross-encoder misses (1/8 → 6/8), but the model is substantially larger for a 0.01 F1 difference. The cross-encoder ships; the NLI scorer stays in `eval/run_eval.py` so the comparison is reproducible.
-
 Precision is weighted over recall throughout, because a false "covered" tells someone they meet a requirement they do not — the exact failure this project exists to prevent.
 
-The set is a **curated collection of hard cases**, not a random sample, so absolute numbers are pessimistic against real traffic. It is built for comparing scorers, which is what it is used for.
+### Why some requirements get no verdict
+
+"Attention to detail" and "ability to thrive in a fast-paced environment" cannot be settled by a resume. What made that concrete was labelling the eval set and catching *my own* inconsistency: I marked mentoring as evidence of "team leadership" but not of "works in a fast-paced environment". If the person writing the labels can't be consistent, a model scored against them is being graded on a coin flip. Those requirements now show the closest matching line, no verdict, and are excluded from the coverage figure.
+
+### Two findings from building this
+
+- **The first eval set gave the wrong answer.** Built only from the strong senior resume in `resume.txt`, it over-represented cases where a match exists, and concluded a recalibrated bi-encoder beat the cross-encoder. Running the app on a real junior-resume-vs-senior-role comparison produced false positives the benchmark had not predicted. Pairs 91–124 add that distribution and the ranking reversed. **Eval set construction mattered more than model choice.**
+- **The alias map silently did nothing at first.** Its keys weren't part of the skill vocabulary, so "gradient boosting" was never recognised as a skill, the gate never engaged, and the aliases never fired. Fixing that one line moved recall from 0.71 to 0.89.
+
+### How much to trust these numbers
+
+Two forces pull in opposite directions, and neither cancels the other:
+
+- **Pessimistic:** the set is a curated collection of hard cases, not a random sample. Real traffic contains many easy pairs this set deliberately omits.
+- **Optimistic, and more serious:** the alias map and the vocabulary fix were written *after* inspecting which pairs the matcher got wrong. That is test-set contamination.
+
+So treat the **ranking** of scorers as sound and the **absolute values** as unconfirmed. Establishing them properly needs ~100 freshly labelled pairs held out and unseen until the end. That is the top open item.
 
 ---
 
@@ -161,10 +174,13 @@ resume-matcher/
 │   ├── LLMAnalyzer.py      # Gemini / OpenAI / Anthropic analysis
 │   ├── CompanyResearcher.py# Company facts for cover letters
 │   └── utils.py            # Shared score bands, skill and degree lookup
+├── docs/
+│   └── ENGINEERING-LOG.md  # Decisions, findings and their reasoning
 ├── eval/
 │   └── run_eval.py         # Threshold calibration and scorer comparison
 └── data/
     ├── skills_list.txt     # Skill vocabulary
+    ├── skill_aliases.yaml  # Git ⇒ version control, XGBoost ⇒ gradient boosting
     └── eval/pairs.jsonl    # 124 labelled requirement/bullet pairs
 ```
 
@@ -191,7 +207,9 @@ resume-matcher/
 
 - **Cosine similarity can flatter a buzzword-dense resume.** It measures topical closeness, not depth — it can't tell "used Python once" from "used Python daily for three years."
 - **Skill matching is literal.** A skill phrased unusually, or absent from `data/skills_list.txt`, is simply not seen. Bare `go` and `r` are excluded on purpose: one- and two-letter entries that are also ordinary English words fire on nearly every document.
-- **Requirements too general to check literally** ("strong engineering skills") fall back to similarity, which is a weak signal at this granularity. Those rows are labelled in the UI so you can judge them yourself.
+- **Requirements too general to check literally** ("integrate models into existing strategies") fall back to similarity, which is the weakest part of the system. Those rows are labelled in the UI so you can judge them yourself.
+- **Requirements about personal qualities get no verdict at all**, by design. If a posting is mostly soft skills, the coverage figure will be based on only a few requirements — check the "Your call" count before reading much into it.
+- **The evaluation numbers are not yet trustworthy as absolutes.** See "How much to trust these numbers".
 - **Scanned PDFs are rejected, not OCR'd.** The failure is explicit rather than silent, but OCR would be the real fix.
 - **The `openai` / `ollama` embedding backends raise `NotImplementedError`.** The dispatch points exist so a backend can be added without touching the rest of the pipeline; nothing is wired behind them yet.
 
@@ -205,6 +223,7 @@ resume-matcher/
 - [x] Requirement-level coverage with per-requirement evidence
 - [x] Labelled evaluation set and threshold calibration
 - [x] Cross-encoder reranking, measured against the benchmark before shipping
+- [ ] Fresh held-out labelled set to confirm the evaluation numbers
 - [ ] Interactive resume tailoring that asks before claiming any skill
 - [ ] Multi-resume comparison against a single job description
 - [ ] Export tailored resume as PDF or DOCX
