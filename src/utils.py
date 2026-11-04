@@ -7,9 +7,82 @@ could disagree about the same score. One definition, read from config.yaml.
 """
 
 import re
+import unicodedata
 from functools import lru_cache
 
 from .config import SCORE_BANDS, SKILL_ALIASES, SKILLS
+
+# ── Script-neutral text normalisation ────────────────────────────────────────
+#
+# The skill vocabulary is matched literally, so every literal match depends on
+# both sides being spelled the same way. For English that means lowercasing.
+# For Arabic it means rather more, because the same word has several legal
+# written forms:
+#
+#   * alef carries optional hamza/madda — أ إ آ ٱ all stand for ا
+#   * final yeh is written ي or ى more or less interchangeably
+#   * teh marbuta ة is often typed as ه
+#   * short vowels (harakat) are optional diacritics, usually omitted
+#   * tatweel ـ is a typographic stretch with no phonetic value
+#
+# A resume written one way and a posting written the other would never match
+# without this, and the failure would be silent — exactly the class of bug the
+# chunking fix in Embedder was about.
+
+_ARABIC_DIACRITICS = re.compile(r"[ً-ٰٟـ]")
+
+_ARABIC_FOLD = str.maketrans({
+    "أ": "ا", "إ": "ا", "آ": "ا", "ٱ": "ا",
+    "ى": "ي",
+    "ة": "ه",
+    # Arabic-Indic and Eastern Arabic-Indic digits -> ASCII, so "٥ سنوات"
+    # and "5 years" parse through the same code path.
+    **{chr(0x0660 + d): str(d) for d in range(10)},
+    **{chr(0x06F0 + d): str(d) for d in range(10)},
+})
+
+
+def normalise(text):
+    """Fold a string to the form every literal lookup in this project uses.
+
+    Lowercases, strips Arabic diacritics and tatweel, folds alef/yeh/teh-marbuta
+    variants, and maps Arabic-Indic digits to ASCII. Latin text is unaffected
+    beyond lowercasing, so this is safe to apply everywhere.
+    """
+    if not text:
+        return ""
+    text = unicodedata.normalize("NFKC", text).lower()
+    text = _ARABIC_DIACRITICS.sub("", text)
+    return text.translate(_ARABIC_FOLD)
+
+
+# U+0600..U+06FF is the main Arabic block; U+0750.. and U+FB50.. cover
+# supplements and presentation forms that turn up in copied-and-pasted text.
+_ARABIC_SCRIPT = re.compile(r"[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]")
+
+
+def has_arabic(text):
+    """True if the text contains Arabic script.
+
+    Deliberately a script test rather than language detection. The question
+    the caller is asking is "can the English-only encoder represent this?",
+    and the answer turns on the alphabet, not on which language it is. It also
+    degrades the right way: a probabilistic detector that guesses wrong on a
+    two-word Arabic line fails silently, while this cannot.
+    """
+    return bool(_ARABIC_SCRIPT.search(text or ""))
+
+
+def _bounded(term):
+    """Compile `term` so it matches as a whole word in any script.
+
+    The old pattern used `(?<![a-z0-9])`, which keeps "java" from firing inside
+    "javascript" but does nothing in Arabic: an Arabic letter is not in [a-z0-9],
+    so the lookaround passed and a term matched happily in the middle of a
+    longer word. `\\w` is Unicode-aware by default in Python 3, so it holds the
+    boundary for both scripts.
+    """
+    return re.compile(r"(?<!\w)" + re.escape(term) + r"(?!\w)")
 
 _VERDICTS = {
     "strong": "Excellent match — you're ready to apply.",
@@ -37,6 +110,23 @@ def score_verdict(score: float) -> str:
 
 
 @lru_cache(maxsize=1)
+def aliases_normalised():
+    """SKILL_ALIASES with both sides folded through normalise().
+
+    config.py lowercases the YAML keys, which is enough for Latin text and
+    does nothing at all for Arabic: "تعلم الآلة" kept its madda alef while
+    find_skills() returned the folded "تعلم الاله", so every Arabic alias
+    lookup missed and the gate reported "not found in your resume" about a
+    skill that was sitting right there.
+
+    Folding here rather than in config.py keeps config free of imports from
+    this module, which would be circular.
+    """
+    return {normalise(concept): {normalise(t) for t in terms}
+            for concept, terms in SKILL_ALIASES.items()}
+
+
+@lru_cache(maxsize=1)
 def skill_patterns():
     """Compile the skill vocabulary once, shared by Cleaner and Matcher.
 
@@ -48,40 +138,73 @@ def skill_patterns():
     effect: "gradient boosting" was not a recognised skill, so the gate never
     engaged and the alias never got a chance to fire.
     """
-    vocabulary = {s.lower() for s in SKILLS} | set(SKILL_ALIASES)
+    vocabulary = {normalise(s) for s in SKILLS} | set(aliases_normalised())
     return tuple(
-        (s, re.compile(r"(?<![a-z0-9])" + re.escape(s) + r"(?![a-z0-9])"))
-        for s in sorted(vocabulary)
+        (skill, _bounded(skill)) for skill in sorted(v for v in vocabulary if v)
     )
 
 
 def find_skills(text):
     """Every known skill literally present in `text`."""
-    lowered = text.lower()
-    return sorted(skill for skill, pattern in skill_patterns() if pattern.search(lowered))
+    folded = normalise(text)
+    return sorted(skill for skill, pattern in skill_patterns() if pattern.search(folded))
 
 
 # Degree levels, so "requires a Master's" can be checked against what the
 # resume actually claims instead of being judged by vector similarity.
+# Markers are normalise()d before comparison, so the Arabic entries here are
+# written in their plain form and will still match the hamza'd, tatweel'd and
+# teh-marbuta variants a real document uses.
+#
+# The Arabic entries are not an optimisation. Without them `degree_required`
+# returned 0 for every Arabic requirement, the degree gate never fired, and
+# the requirement fell through to cosine — which cheerfully returned "covered"
+# for a master's demand against a resume with no master's. Silent, confident
+# and wrong, which is the worst of the three.
 _DEGREE_LEVELS = (
-    (3, ("phd", "ph.d", "doctorate", "doctoral")),
-    (2, ("master", "msc", "m.sc", "m.s.", "mba", "graduate degree", "advanced degree")),
-    (1, ("bachelor", "bsc", "b.sc", "b.s.", "undergraduate", "b.eng", "beng")),
+    (3, ("phd", "ph.d", "doctorate", "doctoral",
+         "دكتوراه", "الدكتوراه")),
+    (2, ("master", "msc", "m.sc", "m.s.", "mba", "graduate degree", "advanced degree",
+         "ماجستير", "الماجستير")),
+    (1, ("bachelor", "bsc", "b.sc", "b.s.", "undergraduate", "b.eng", "beng",
+         "بكالوريوس", "البكالوريوس", "ليسانس")),
 )
 
 
+def degree_levels(text):
+    """Every degree level named in the text, as a set. Empty if none."""
+    folded = normalise(text)
+    return {level for level, markers in _DEGREE_LEVELS
+            if any(normalise(m) in folded for m in markers)}
+
+
 def degree_level(text):
-    """Highest degree level named in the text; 0 if none."""
-    lowered = text.lower()
-    for level, markers in _DEGREE_LEVELS:
-        if any(m in lowered for m in markers):
-            return level
-    return 0
+    """Highest degree level named in the text; 0 if none.
+
+    Right for a resume, where naming a master's and a bachelor's means the
+    master's is held. Wrong for a requirement, where "Master's or PhD" is
+    satisfied by the lower of the two — see `degree_required`.
+    """
+    levels = degree_levels(text)
+    return max(levels) if levels else 0
+
+
+def degree_required(text):
+    """The LOWEST degree level a requirement will accept; 0 if it names none.
+
+    Postings overwhelmingly phrase this as a floor plus a wish — "Master's
+    degree required, PhD preferred", "Bachelor's or higher". Reading the
+    highest level named turned every one of those into a demand for the
+    wish, and told a perfectly qualified master's-holder they were
+    contradicted by a posting that would have accepted them.
+    """
+    levels = degree_levels(text)
+    return min(levels) if levels else 0
 
 
 @lru_cache(maxsize=512)
 def _term_pattern(term):
-    return re.compile(r"(?<![a-z0-9])" + re.escape(term.lower()) + r"(?![a-z0-9])")
+    return _bounded(normalise(term))
 
 
 def evidence_for(skill, text):
@@ -91,12 +214,12 @@ def evidence_for(skill, text):
     Git evidences "version control", but a posting asking for Git is not
     satisfied by a resume that only says "version control".
     """
-    lowered = text.lower()
-    skill = skill.lower()
-    if _term_pattern(skill).search(lowered):
+    folded = normalise(text)
+    skill = normalise(skill)
+    if _term_pattern(skill).search(folded):
         return skill
-    for alias in SKILL_ALIASES.get(skill, ()):
-        if _term_pattern(alias).search(lowered):
+    for alias in aliases_normalised().get(skill, ()):
+        if _term_pattern(alias).search(folded):
             return alias
     return ""
 
@@ -132,5 +255,5 @@ _JUDGEMENT_PATTERNS = tuple(re.compile(p) for p in (
 
 def is_judgement_call(requirement):
     """True if the requirement asks about a personal quality, not a fact."""
-    lowered = requirement.lower()
-    return any(p.search(lowered) for p in _JUDGEMENT_PATTERNS)
+    folded = normalise(requirement)
+    return any(p.search(folded) for p in _JUDGEMENT_PATTERNS)

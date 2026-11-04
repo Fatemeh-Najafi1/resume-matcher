@@ -79,3 +79,46 @@ oop: [object oriented programming, object-oriented]
 
 algorithms: [data structures, complexity analysis, big-o, dynamic programming, sorting, graph traversal]
 data structures: [algorithms, linked list, hash table, binary tree, graph]
+
+
+# ── Arabic terminology ───────────────────────────────────────────────────────
+#
+# Postings in the Gulf are frequently written in Arabic while technical resumes
+# are usually written in English, so a requirement and the evidence for it
+# routinely sit in different scripts. The multilingual encoder handles the
+# fuzzy half of that; these entries handle the literal half, which is the half
+# that produces auditable reasons.
+#
+# Written in plain orthography — normalise() folds alef/yeh/teh-marbuta
+# variants, strips tatweel and maps Arabic-Indic digits, so "الإصطناعي" and
+# "الاصطناعي" both reach the same key.
+#
+# One-way, like everything else here: an Arabic requirement is evidenced by
+# the English term on a resume. The reverse is deliberately NOT asserted.
+
+برمجة: [programming, software development, python, java, javascript, c++]
+تطوير البرمجيات: [software development, software engineering, programming]
+تحليل البيانات: [data analysis, data analytics, analytics, pandas, sql]
+هندسة البيانات: [data engineering, etl, airflow, spark, pipelines]
+تعلم الآلة: [machine learning, ml, scikit-learn, tensorflow, pytorch, xgboost]
+التعلم الآلي: [machine learning, ml, scikit-learn, tensorflow, pytorch]
+التعلم العميق: [deep learning, neural networks, tensorflow, pytorch]
+الذكاء الاصطناعي: [artificial intelligence, ai, machine learning, deep learning, scikit-learn, tensorflow, pytorch]
+معالجة اللغات الطبيعية: [nlp, natural language processing, spacy, nltk, transformers]
+قواعد البيانات: [database, databases, sql, mysql, postgresql, mongodb]
+الحوسبة السحابية: [cloud, aws, azure, gcp, cloud computing]
+الأمن السيبراني: [cybersecurity, security, penetration testing, infosec]
+تطوير الويب: [web development, frontend, backend, react, django, flask]
+واجهات برمجة التطبيقات: [api, apis, rest api, graphql]
+إدارة المشاريع: [project management, agile, scrum, jira]
+التصور المرئي للبيانات: [data visualization, tableau, power bi, matplotlib]
+الإحصاء: [statistics, statistical analysis, hypothesis testing]
+
+# Tool names as they are transliterated into Arabic script. These are alias
+# KEYS, so each one joins the skill vocabulary and is evidenced by the Latin
+# spelling a technical resume actually uses.
+بايثون: [python]
+جافا: [java]
+جافاسكريبت: [javascript]
+لغة بايثون: [python]
+سكويل: [sql]

@@ -9,6 +9,21 @@ embedding:
   # Vector length the model outputs — used for the empty-text fallback.
   dimensions: 384
 
+  # Used instead whenever either document contains Arabic script.
+  #
+  # This is not a benchmark-driven choice: all-MiniLM-L6-v2 is an
+  # English-only model and has no Arabic in its training data, so it cannot
+  # represent an Arabic requirement at all. The routing is justified by
+  # construction. The bilingual eval set only quantifies the size of the gap
+  # (F1 0.40 -> 0.62) rather than deciding the question, which keeps that set
+  # from having informed a design decision.
+  #
+  # The cost is real and worth seeing: ~480MB on disk against ~90MB, and a
+  # 128-token window against 256, so the chunker halves its stride. Loading
+  # both at once will not fit a 1GB free tier, which is why this is a route
+  # rather than a replacement — an all-English document never pays for it.
+  multilingual_model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+
 # Cosine-similarity bands, shared by Comparator and Generator so the two can
 # never disagree about the same score.
 scoring:

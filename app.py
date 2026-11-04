@@ -44,7 +44,8 @@ def main():
     job_clean = c.preprocess(job_text, doc_type="job")
 
     # 3. Embeddings — text becomes a 384-dim vector
-    e = Embedder(model="basic")
+    # Picks the multilingual encoder if either document contains Arabic.
+    e = Embedder.for_documents(resume_text, job_text)
     resume_vect = e.get_embeddings(resume_clean["clean_text"])
     job_vect = e.get_embeddings(job_clean["clean_text"])
 

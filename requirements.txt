@@ -1,16 +1,48 @@
-streamlit
-sentence-transformers
-pandas
-numpy
-scikit-learn
-nltk
-pdfplumber
-docx2txt
-python-docx
-pyyaml
-google-generativeai
-openai
-anthropic
-beautifulsoup4
-requests
-python-dotenv
+# Pinned to the versions this project was tested and measured against.
+#
+# These were unpinned until now, which meant every rebuild of the live demo
+# resolved fresh and a breaking release anywhere in the tree would have
+# surfaced as an unexplained deployment failure. The evaluation numbers in the
+# README are only reproducible against a known set of versions, so the pins
+# are part of the evidence rather than housekeeping.
+#
+# Verified with: python -m pytest tests/ && python -m eval.holdout --all
+# Python 3.11.
+
+# ── Core ─────────────────────────────────────────────────────────────────────
+streamlit==1.50.0
+sentence-transformers==5.5.0
+pandas==2.3.3
+numpy==2.3.4
+scikit-learn==1.8.0
+nltk==3.9.2
+pyyaml==6.0.3
+
+# torch is pinned to a minor floor rather than an exact version: the wheel
+# that fits depends on the platform and on whether CUDA is present, and an
+# exact pin here fails to resolve on a CPU-only host.
+torch>=2.6,<3.0
+
+# ── File parsing ─────────────────────────────────────────────────────────────
+pdfplumber==0.11.7
+docx2txt==0.9
+# python-docx was listed here for a long time and is imported nowhere in this
+# project — Reader.py uses docx2txt. Removed rather than pinned.
+
+# ── Scraping ─────────────────────────────────────────────────────────────────
+beautifulsoup4==4.14.3
+requests==2.32.5
+
+# ── Config ───────────────────────────────────────────────────────────────────
+python-dotenv==1.2.2
+
+# ── Optional LLM providers ───────────────────────────────────────────────────
+# Imported lazily inside src/LLMAnalyzer.py, so the app runs fine without any
+# of them — you lose the AI analysis panel, not the matching. Install whichever
+# provider you hold a key for.
+google-generativeai==0.8.6
+# openai==1.109.1
+# anthropic==0.69.0
+
+# ── Development ──────────────────────────────────────────────────────────────
+# pytest==9.2.0

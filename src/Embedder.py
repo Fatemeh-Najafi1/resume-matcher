@@ -3,7 +3,8 @@ from functools import lru_cache
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from .config import EMBEDDING_MODEL, EMBEDDING_DIM
+from .config import EMBEDDING_MODEL, EMBEDDING_DIM, MULTILINGUAL_MODEL
+from .utils import has_arabic
 
 
 @lru_cache(maxsize=2)
@@ -23,6 +24,43 @@ class Embedder:
         self.model = model
         self.llm_model = llm_model
         self.model_name = model_name
+
+    @classmethod
+    def for_documents(cls, *texts):
+        """Pick the encoder that can actually read these documents.
+
+        all-MiniLM-L6-v2 is English-only. Handed an Arabic requirement it does
+        not fail — it returns a vector, and that vector is noise, so the
+        matcher goes on to compare noise against a resume and reports the
+        result with the same confidence it reports everything else. Silent
+        wrongness, which is the failure mode this project keeps running into
+        and keeps having to design out.
+
+        So the encoder is chosen by looking at the text. The cost of being
+        wrong in the cheap direction is a larger download; the cost of being
+        wrong in the other direction is a meaningless answer presented as a
+        real one.
+        """
+        if MULTILINGUAL_MODEL and any(has_arabic(t) for t in texts if t):
+            return cls(model_name=MULTILINGUAL_MODEL)
+        return cls()
+
+    def dim(self):
+        """The loaded model's output width.
+
+        Read from the model rather than config.yaml so that swapping the
+        embedding model in a comparison run cannot silently produce vectors of
+        one size and zero-fallbacks of another.
+        """
+        try:
+            model = load_model(self.model_name)
+            # sentence-transformers 5.x renamed this; support both so a
+            # library upgrade doesn't silently fall back to the config value.
+            getter = (getattr(model, "get_embedding_dimension", None)
+                      or model.get_sentence_embedding_dimension)
+            return int(getter())
+        except Exception:
+            return EMBEDDING_DIM
 
     def get_embeddings(self, text, model=None):
         """Turn text into a vector. `model` overrides the backend for one call."""
@@ -50,7 +88,7 @@ class Embedder:
         better than reading 40% of it sharply.
         """
         if not text or not text.strip():
-            return np.zeros(EMBEDDING_DIM)
+            return np.zeros(self.dim())
 
         model = load_model(self.model_name)
         chunks = self._chunk(text)
@@ -72,7 +110,7 @@ class Embedder:
         """
         texts = list(texts)
         if not texts:
-            return np.zeros((0, EMBEDDING_DIM))
+            return np.zeros((0, self.dim()))
 
         model = load_model(self.model_name)
 
@@ -86,7 +124,7 @@ class Embedder:
                 flat.append(chunk)
                 owner.append(i)
 
-        out = np.zeros((len(texts), EMBEDDING_DIM))
+        out = np.zeros((len(texts), self.dim()))
         if not flat:
             return out
 
@@ -98,13 +136,42 @@ class Embedder:
                 out[i] = np.average(rows, axis=0, weights=weights)
         return out
 
-    def _chunk(self, text, words_per_chunk=150, overlap=25):
+    def _window(self):
+        """How many words fit the loaded model's token window, with headroom.
+
+        This used to be hardcoded at 150 words, which is right for
+        all-MiniLM-L6-v2's 256 word-pieces and wrong for anything else. The
+        multilingual model this project evaluates accepts 128 — half as much —
+        so a fixed 150 would have silently truncated every chunk and the
+        Arabic results would have been quietly meaningless.
+
+        That is the same bug the chunking work fixed in the first place, which
+        is the argument for deriving the number instead of writing it down: a
+        constant that is only correct for one model will outlive that model.
+
+        The 0.55 words-per-token ratio is deliberately pessimistic. English
+        prose runs nearer 0.75, but Arabic script and rare technical tokens
+        fragment much harder, and over-filling the window loses text with no
+        warning while under-filling it only costs a little sharpness.
+        """
+        try:
+            limit = int(load_model(self.model_name).max_seq_length)
+        except Exception:
+            limit = 256
+        # Two special tokens, then a safety margin.
+        return max(32, int((limit - 2) * 0.55))
+
+    def _chunk(self, text, words_per_chunk=None, overlap=None):
         """Split into word windows that comfortably fit the token limit.
 
-        150 words is well inside 256 word-pieces even when the text is dense
-        with rare tokens. The overlap keeps a requirement that straddles a
-        boundary from being split across two chunks and diluted in both.
+        The overlap keeps a requirement that straddles a boundary from being
+        split across two chunks and diluted in both.
         """
+        if words_per_chunk is None:
+            words_per_chunk = self._window()
+        if overlap is None:
+            overlap = max(4, words_per_chunk // 6)
+
         words = text.split()
         if len(words) <= words_per_chunk:
             return [text]

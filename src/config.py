@@ -15,6 +15,7 @@ _DEFAULTS = {
     "embedding": {
         "model": "sentence-transformers/all-MiniLM-L6-v2",
         "dimensions": 384,
+        "multilingual_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     },
     "scoring": {
         "strong": 0.85,
@@ -74,6 +75,11 @@ _cfg = _merge(_DEFAULTS, _load_yaml())
 
 EMBEDDING_MODEL = _cfg["embedding"]["model"]
 EMBEDDING_DIM = int(_cfg["embedding"]["dimensions"])
+
+# Loaded only when a document actually contains Arabic script. Empty string
+# disables the route and leaves Arabic to the English model, which cannot
+# represent it — see config.yaml for why that is a route and not a default.
+MULTILINGUAL_MODEL = _cfg["embedding"].get("multilingual_model", "")
 
 # Ordered high -> low; utils.score_band walks these.
 SCORE_BANDS = {

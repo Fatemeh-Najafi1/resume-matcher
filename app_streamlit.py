@@ -17,6 +17,7 @@ from src.LLMAnalyzer import analyze
 from src.CompanyResearcher import extract_company_name, research_company
 from src.Requirements import extract_requirements
 from src.Matcher import split_bullets, match, unmatched_bullets
+from src import Verdict, Fidelity
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -239,7 +240,9 @@ if run_btn:
         resume_clean = c.preprocess(resume_text, doc_type="resume")
         job_clean = c.preprocess(job_text, doc_type="job")
 
-        e = Embedder(model="basic")
+        # Picks the multilingual encoder if either document contains Arabic;
+        # the English-only model would return noise rather than fail.
+        e = Embedder.for_documents(resume_text, job_text)
         resume_vect = e.get_embeddings(resume_clean["clean_text"])
         job_vect = e.get_embeddings(job_clean["clean_text"])
 
@@ -342,13 +345,33 @@ if results:
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Coverage", f"{cov['coverage']*100:.0f}%",
                   help="Covered requirements, partials counted as half. Personal-quality "
-                       "requirements are excluded — see 'Your call' below.")
-        m2.metric("✅ Covered", counts["covered"])
-        m3.metric("🟡 Partial", counts["partial"])
-        m4.metric("❌ Missing", counts["missing"])
-        m5.metric("🤔 Your call", counts.get("judgement", 0),
-                  help="Personal qualities a resume can't settle. Shown with your closest "
-                       "evidence instead of a guessed verdict.")
+                       "requirements are excluded from the denominator entirely — "
+                       "counting them either way would be a guess dressed up as a "
+                       "measurement.")
+        m2.metric("✅ Covered", counts.get(Verdict.COVERED, 0))
+        m3.metric("🟡 Partial", counts.get(Verdict.PARTIAL, 0))
+        m4.metric("❓ Not shown", counts.get(Verdict.UNSUPPORTED, 0),
+                  help="Your resume doesn't speak to these. That is not the same as not "
+                       "having them — add them if you do.")
+        m5.metric("🚫 Ruled out", counts.get(Verdict.CONTRADICTED, 0),
+                  help="Your resume states something that cannot meet the demand — a "
+                       "degree below the floor, or fewer years than asked. These are the "
+                       "only ones that are genuine mismatches rather than gaps.")
+
+        if counts.get(Verdict.JUDGEMENT, 0):
+            st.caption(
+                f"🤔 {counts[Verdict.JUDGEMENT]} further requirement(s) ask about personal "
+                "qualities a resume cannot settle. They get no verdict and are excluded "
+                "from the coverage figure — scroll down to judge them yourself."
+            )
+
+        if counts.get(Verdict.UNSUPPORTED, 0) and not counts.get(Verdict.CONTRADICTED, 0):
+            st.success(
+                "Nothing here rules you out. Every gap below is something your resume "
+                "simply doesn't mention — which is a writing problem, not a "
+                "qualification problem.",
+                icon="💡",
+            )
 
         if results.get("req_source") == "rules":
             st.info(
@@ -357,10 +380,12 @@ if results:
                 icon="ℹ️",
             )
 
-        badge = {"covered": "✅", "partial": "🟡", "missing": "❌", "judgement": "🤔"}
+        badge = {Verdict.COVERED: "✅", Verdict.PARTIAL: "🟡",
+                 Verdict.UNSUPPORTED: "❓", Verdict.CONTRADICTED: "🚫",
+                 Verdict.JUDGEMENT: "🤔"}
         for row in cov["requirements"]:
             kind = "" if row.get("kind") == "required" else " · preferred"
-            header = f"{badge[row['status']]} {row['text']}{kind}"
+            header = f"{badge.get(row['status'], '·')} {row['text']}{kind}"
             with st.expander(header, expanded=False):
                 if row.get("reason"):
                     st.markdown(f"**Verdict:** {row['reason']}")
@@ -384,11 +409,20 @@ if results:
                         "suggestion and judge it yourself — measured precision on this "
                         "class of decision is about 0.9, not 1.0."
                     )
+                st.caption(Verdict.MEANING.get(row["status"], ""))
+
                 if row["evidence"]:
                     st.markdown("**Your best evidence:**")
                     st.info(row["evidence"])
-                else:
-                    st.markdown("_Nothing in your resume matches this._")
+                elif row["status"] == Verdict.UNSUPPORTED:
+                    st.markdown(
+                        "_Your resume does not mention this. That is not the same as not "
+                        "having it — if you do, say so explicitly._"
+                    )
+                elif row["status"] == Verdict.CONTRADICTED:
+                    st.markdown(
+                        "_This is a real shortfall rather than a gap in the writing._"
+                    )
 
         idle = unmatched_bullets(cov)
         if idle:
@@ -464,11 +498,36 @@ if results:
         if bullets:
             st.divider()
             st.markdown("#### ✏️ Suggested Bullet Rewrites")
-            st.caption("Only use these if they accurately reflect your experience")
-            for b in bullets:
-                with st.expander(f"Original: {b.get('original', '')[:80]}..."):
+
+            # The model was told not to invent anything. That instruction is a
+            # sentence in a prompt, so every rewrite is checked against the
+            # resume afterwards rather than trusted. See src/Fidelity.py.
+            screened = Fidelity.screen_rewrites(bullets, results.get("resume_text", ""))
+            summary = Fidelity.summarise(screened)
+            if screened and any(not s_["fidelity"]["ok"] for s_ in screened):
+                st.error(summary, icon="🚨")
+            elif summary:
+                st.success(summary, icon="✅")
+            st.caption(
+                "Each rewrite is checked automatically for skills, figures and "
+                "seniority claims your resume never made. Use one only if it is "
+                "true of you — the check catches inventions, not exaggerations."
+            )
+
+            for b in screened:
+                fid = b["fidelity"]
+                mark = "✅" if fid["ok"] else "🚨"
+                with st.expander(f"{mark} Original: {b.get('original', '')[:70]}..."):
                     st.markdown(f"**Rewritten:** {b.get('rewritten', '')}")
                     st.caption(f"Why: {b.get('reason', '')}")
+                    if not fid["ok"]:
+                        st.error(
+                            "**This rewrite adds something your resume does not say.** "
+                            "Claiming it would not survive an interview:",
+                            icon="🚨",
+                        )
+                    for problem in fid["problems"]:
+                        st.markdown(f"- {problem}")
 
         advice = llm_result.get("overall_advice", "")
         if advice:
