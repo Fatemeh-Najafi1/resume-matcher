@@ -148,8 +148,8 @@ about how much they actually add.
 Running the held-out set for the first time produced the most useful result in
 the project's history, and it was a negative one.
 
-**Synonym handling collapsed.** On the development set the matcher scores 8/8
-on the synonym category. On the held-out set it scored 2/7, and paraphrase fell from 12/14 to 3/7.
+**Synonym handling collapsed.** On the original 124-pair development set the
+matcher scored 8/8 on the synonym category. On the held-out set it scored 2/7.
 
 The cause is exactly the contamination the old README admitted to but could
 not quantify. The alias map was built by reading development-set failures, so
@@ -158,21 +158,37 @@ XGBoost for gradient boosting. It knows nothing about Terraform meaning
 infrastructure-as-code, Parquet meaning columnar storage, or Airflow meaning
 workflow orchestration, because no development-set pair ever asked it to.
 
-Two conclusions follow, and the second is the one worth keeping:
+Then the development set was widened to a second persona, and the numbers
+settled into something more honest:
 
-1. The development-set synonym score was never a measurement of synonym
-   handling. It was a measurement of how completely the alias map had been
-   fitted to one resume.
-2. **A hand-maintained alias map does not generalise, and its development-set
-   score actively conceals that.** The fix is not more aliases — adding
-   data-engineering terms now would simply re-fit the map to the held-out set
-   and burn it. The fix is a vocabulary that was never hand-fitted at all,
-   which is why ESCO's alternative-label set is the top open item below.
+| Category | Dev (124, one persona) | Dev (179, two personas) | Held-out |
+|---|---|---|---|
+| synonym | 8/8 | 12/21 | 2/7 |
+| paraphrase | 12/14 | 14/23 | 2/7 |
+| F1 (shipped scorer) | 0.86 | 0.76 | 0.62 |
 
-This is what a held-out set is for. Nothing in months of development-set work
-surfaced it.
+Read the middle column. **Widening the development set dropped its own F1 from
+0.86 to 0.76 without a line of matcher code changing.** Ten of those points
+were never accuracy; they were fit. And the synonym score fell from a perfect
+8/8 to 12/21 — the weakness is now visible on the surface decisions are
+allowed to be made on, which is the whole point of having one.
 
----
+That is the strongest argument here for the cost of a wider development set. A
+held-out set tells you that you have a problem; it cannot be used to fix it
+without being destroyed. A development set that reflects the real distribution
+tells you the same thing *and* lets you work on it.
+
+Three conclusions follow:
+
+1. The original development-set synonym score was never a measurement of
+   synonym handling. It was a measurement of how completely the alias map had
+   been fitted to one resume.
+2. **A hand-maintained alias map does not generalise**, and a narrow
+   development-set score actively conceals that.
+3. The fix is not more aliases. Adding data-engineering terms would simply
+   re-fit the map to the held-out set and burn it. The fix is a vocabulary
+   that was never hand-fitted at all — which was tried, and did not work
+   either. See *What did not work*.
 
 ---
 

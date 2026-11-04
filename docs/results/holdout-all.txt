@@ -1,0 +1,141 @@
+
+Building the dev-set ladder (thresholds and calibration come from here only)...
+
+==============================================================================
+  DEV  —  development set (tuned against — contaminated)
+  179 pairs (83 positive, 96 negative)
+==============================================================================
+
+  Accuracy and cost, every rung measured on the same pairs
+  scorer                     P     R     F1     thresh   ms/pair      disk
+  ------------------------------------------------------------------------
+  keyword overlap         0.90  0.54   0.68       0.08       0.0         —
+  BM25                    0.90  0.55   0.69       2.86       0.0         —
+  skills mapping          0.95  0.42   0.58       0.51       0.6         —
+  semantic search         0.90  0.57   0.70       0.40      72.0     183MB
+  ranking (cross-encoder)  0.90  0.65   0.76     -10.56     128.5     184MB
+  entailment (NLI)        0.91  0.71   0.80       0.21     176.8     331MB
+
+  Selective prediction for the shipped scorer (ranking (cross-encoder))
+  Confidence calibrated on the dev set, applied unchanged here.
+
+    answer  29.6%  ->  wrong   3.8% of the time  (accuracy 96.2%)
+    answer  49.7%  ->  wrong   5.6% of the time  (accuracy 94.4%)
+    answer  69.8%  ->  wrong  13.6% of the time  (accuracy 86.4%)
+    answer  89.9%  ->  wrong  18.0% of the time  (accuracy 82.0%)
+    answer 100.0%  ->  wrong  19.6% of the time  (accuracy 80.4%)
+
+    AURC 0.105  (shuffled-confidence baseline 0.195, informative)
+    Abstain ECE 0.028  (well calibrated)
+    to stay under 5% error it can answer 42% of pairs
+    to stay under 10% error it can answer 59% of pairs
+
+  Per-category accuracy (shipped scorer)
+    absent_tech          17/17
+    degree               10/10
+    distractor           11/12
+    exact_tech           17/17
+    generic              11/18
+    junior_vs_senior     32/38
+    paraphrase           14/23
+    related_not_same     20/23
+    synonym              12/21
+
+  Excluding 19 personal-quality pairs the app declines to judge:
+    P 0.90  R 0.69  F1 0.78
+
+==============================================================================
+  HOLDOUT  —  held-out English set (never tuned against)
+  60 pairs (30 positive, 30 negative)
+==============================================================================
+
+  Accuracy and cost, every rung measured on the same pairs
+  scorer                     P     R     F1     thresh   ms/pair      disk
+  ------------------------------------------------------------------------
+  keyword overlap         0.86  0.40   0.55       0.08       0.0         —
+  BM25                    0.92  0.37   0.52       2.86       0.1         —
+  skills mapping          0.90  0.30   0.45       0.51       0.6         —
+  semantic search         0.82  0.47   0.60       0.40      41.6     183MB
+  ranking (cross-encoder)  0.83  0.50   0.62     -10.56     164.9     184MB
+  entailment (NLI)        0.76  0.53   0.63       0.21     170.8     331MB
+
+  Selective prediction for the shipped scorer (ranking (cross-encoder))
+  Confidence calibrated on the dev set, applied unchanged here.
+
+    answer  30.0%  ->  wrong  11.1% of the time  (accuracy 88.9%)
+    answer  50.0%  ->  wrong  13.3% of the time  (accuracy 86.7%)
+    answer  70.0%  ->  wrong  21.4% of the time  (accuracy 78.6%)
+    answer  90.0%  ->  wrong  24.1% of the time  (accuracy 75.9%)
+    answer 100.0%  ->  wrong  30.0% of the time  (accuracy 70.0%)
+
+    AURC 0.199  (shuffled-confidence baseline 0.299, informative)
+    Abstain ECE 0.122  (poorly calibrated — do not show as a probability)
+    to stay under 5% error it can answer 0% of pairs
+    to stay under 10% error it can answer 33% of pairs
+
+  Per-category accuracy (shipped scorer)
+    absent_tech          6/6
+    degree               5/5
+    distractor           5/5
+    exact_tech           7/7
+    generic              2/6
+    junior_vs_senior     7/9
+    paraphrase           2/7
+    related_not_same     6/8
+    synonym              2/7
+
+  Excluding 5 personal-quality pairs the app declines to judge:
+    P 0.83  R 0.58  F1 0.68
+
+==============================================================================
+  BILINGUAL  —  Arabic/English set (never tuned against)
+  44 pairs (23 positive, 21 negative)
+==============================================================================
+
+  Accuracy and cost, every rung measured on the same pairs
+  scorer                     P     R     F1     thresh   ms/pair      disk
+  ------------------------------------------------------------------------
+  keyword overlap         0.92  0.52   0.67       0.08       0.0         —
+  BM25                    0.92  0.52   0.67       2.86       0.0         —
+  skills mapping          0.92  0.52   0.67       0.51       0.4         —
+  semantic search         0.82  0.61   0.70       0.40      59.2     183MB
+  semantic (multilingual)  0.93  0.61   0.74       0.58     375.5     480MB
+  ranking (cross-encoder)  0.75  0.65   0.70     -10.56     282.2     184MB
+  entailment (NLI)        0.78  0.61   0.68       0.21     395.1     331MB
+
+  Selective prediction for the shipped scorer (semantic (multilingual))
+  Confidence calibrated on the dev set, applied unchanged here.
+
+    answer  29.5%  ->  wrong   7.7% of the time  (accuracy 92.3%)
+    answer  50.0%  ->  wrong  13.6% of the time  (accuracy 86.4%)
+    answer  68.2%  ->  wrong  20.0% of the time  (accuracy 80.0%)
+    answer  88.6%  ->  wrong  20.5% of the time  (accuracy 79.5%)
+    answer 100.0%  ->  wrong  22.7% of the time  (accuracy 77.3%)
+
+    AURC 0.131  (shuffled-confidence baseline 0.220, informative)
+    Abstain ECE 0.139  (poorly calibrated — do not show as a probability)
+    to stay under 5% error it can answer 20% of pairs
+    to stay under 10% error it can answer 45% of pairs
+
+  Per-category accuracy (shipped scorer)
+    absent_tech          5/5
+    degree               6/6
+    distractor           2/2
+    exact_tech           2/4
+    generic              2/3
+    junior_vs_senior     2/3
+    orthography          2/3
+    paraphrase           7/11
+    related_not_same     6/7
+
+  Per-language-direction accuracy
+    ar_req_ar_bullet     8/11
+    ar_req_en_bullet     17/20
+    en_req_ar_bullet     9/13
+
+==============================================================================
+  Read the dev row as an upper bound and the held-out rows as the
+  estimate. The gap between them is what tuning on a set buys you,
+  and it is the number most projects in this space never publish.
+==============================================================================
+

@@ -69,69 +69,82 @@ Every rung measured on the same pairs. The bottom rung has no model at all,
 which is the point: anything that cannot beat word overlap has no business in
 the pipeline.
 
-**Development set (124 pairs) — tuned against, so read as an upper bound:**
+**Development set (179 pairs, two personas) — tuned against, so read as an
+upper bound:**
 
 | Scorer | P | R | F1 | ms/pair | disk |
 |---|---|---|---|---|---|
-| Keyword overlap (Jaccard) | 0.91 | 0.78 | 0.84 | 0.0 | — |
-| BM25 | 0.91 | 0.78 | 0.84 | 0.0 | — |
-| Skills mapping (literal gate) | 0.96 | 0.51 | 0.67 | 0.5 | — |
-| Semantic search (bi-encoder) | 0.90 | 0.75 | 0.82 | 95 | 183MB |
-| **Ranking (cross-encoder)** | **0.93** | **0.80** | **0.86** | 98 | 184MB |
-| Entailment (NLI) | 0.91 | 0.76 | 0.83 | 165 | 331MB |
-
-> **On the timings.** The development set runs first, so its millisecond
-> column carries the one-off cost of loading each model from disk. Compare
-> timings *within* a table, not across them — the held-out table below is
-> closer to steady-state throughput, which is why its bi-encoder figure is a
-> third of the one above for identical work.
+| Keyword overlap (Jaccard) | 0.90 | 0.54 | 0.68 | 0.0 | — |
+| BM25 | 0.90 | 0.55 | 0.69 | 0.0 | — |
+| Skills mapping (literal gate) | 0.95 | 0.42 | 0.58 | 0.6 | — |
+| Semantic search (bi-encoder) | 0.90 | 0.57 | 0.70 | 72 | 183MB |
+| Ranking (cross-encoder) — *shipped* | 0.90 | 0.65 | 0.76 | 128 | 184MB |
+| **Entailment (NLI)** | 0.91 | **0.71** | **0.80** | 177 | 331MB |
 
 **Held-out set (60 pairs, different persona, never tuned against):**
 
 | Scorer | P | R | F1 | ms/pair |
 |---|---|---|---|---|
-| Keyword overlap (Jaccard) | 0.82 | 0.47 | 0.60 | 0.0 |
-| BM25 | 0.82 | 0.47 | 0.60 | 0.0 |
-| Skills mapping | 0.90 | 0.30 | 0.45 | 0.5 |
-| **Semantic search** | 0.81 | 0.57 | **0.67** | 29 |
-| Ranking (cross-encoder) | 0.84 | 0.53 | 0.65 | 182 |
-| Entailment (NLI) | 0.76 | 0.53 | 0.63 | 174 |
+| Keyword overlap (Jaccard) | 0.86 | 0.40 | 0.55 | 0.0 |
+| BM25 | 0.92 | 0.37 | 0.52 | 0.1 |
+| Skills mapping | 0.90 | 0.30 | 0.45 | 0.6 |
+| Semantic search | 0.82 | 0.47 | 0.60 | 42 |
+| Ranking (cross-encoder) — *shipped* | 0.83 | 0.50 | 0.62 | 165 |
+| **Entailment (NLI)** | 0.76 | 0.53 | **0.63** | 171 |
+
+> **On the timings.** The development set runs first, so its millisecond column
+> carries the one-off cost of loading each model. Compare timings *within* a
+> table, not across them.
 
 ### Three findings, and none of them is flattering
 
 **1. The contamination was real, and this is its size.** The previous README
 admitted its numbers were tainted — the alias map and skill vocabulary were
 both repaired after inspecting which pairs failed. It could not say by how
-much. Now it can: **F1 0.86 on the set that was tuned, 0.65 on the set that
-was not.** Synonym accuracy went 8/8 → 2/7, paraphrase 12/14 → 3/7.
+much. Now it can: **F1 0.76 on the set that was tuned, 0.62 on the set that
+was not.** Synonym accuracy 2/7 held-out, paraphrase 2/7.
 
 The cause is precise. The alias map contains the synonyms the development set
 happens to use — Git for version control, XGBoost for gradient boosting. It
 has never heard of Terraform meaning infrastructure-as-code or Parquet meaning
 columnar storage. The development-set synonym score was never measuring
 synonym handling; it was measuring how thoroughly the map had been fitted to
-one resume.
+the resumes it was written from.
 
-The fix is not more aliases. Adding data-engineering terms now would re-fit the
-map to the held-out set and burn it. The fix is a vocabulary nobody hand-fitted
-— ESCO's alternative labels — which is the top open item.
+Note what widening the development set did to its own numbers: adding a second
+persona dropped dev F1 from 0.86 to 0.76 without a line of matcher code
+changing. Ten of those points were never accuracy — they were fit.
 
-**2. The cross-encoder's advantage does not survive the move.** It wins on the
-development set (F1 0.86 vs 0.82) and loses on the held-out set (0.65 vs 0.67)
-while costing **six times the latency**. This is the second time this ranking
-has reversed when the evaluation distribution changed; the first is written up
-in [the engineering log](docs/ENGINEERING-LOG.md).
+**2. The scorer ranking has now reversed three times.** Each reversal came
+from changing the evaluation distribution, not the code:
 
-The honest reading is not "the bi-encoder is better". It is that **this
-benchmark cannot settle the question**, and the shipped default has
-deliberately *not* been changed on the strength of a held-out number — doing so
-would convert the held-out set into a development set. Settling it needs a
-third set.
+| | Dev F1 | Held-out F1 |
+|---|---|---|
+| Semantic search (bi-encoder) | 0.70 | 0.60 |
+| Ranking (cross-encoder) — *shipped* | 0.76 | 0.62 |
+| Entailment (NLI) | **0.80** | **0.63** |
 
-**3. A model with no model beats most of them.** Jaccard overlap scores F1 0.60
+The first ranking (one resume, 124 pairs) said the bi-encoder. The second said
+the cross-encoder, which is what ships. The third — a wider dev set across two
+personas — says **NLI entailment, and this is the first time dev and held-out
+agree on a winner.**
+
+That is a legitimate basis for switching, because it is a development-set
+decision and dev is the surface decisions are allowed to be made on. It has
+not been taken yet for one reason worth stating plainly: NLI costs 331MB
+against the cross-encoder's 184MB, and the live demo runs on a 1GB tier that
+already has to fit a 480MB multilingual model when Arabic appears. The 0.01
+held-out margin is also well inside noise at 60 pairs. So it is recorded as a
+measured, actionable finding rather than a silent default change.
+
+**3. A model with no model beats most of them.** Jaccard overlap scores F1 0.55
 held-out, in microseconds, with nothing to download. The best transformer
-manages 0.67. That gap is what 183MB and 29ms per pair actually buys, and
+manages 0.63. That gap is what 331MB and 171ms per pair actually buys, and
 reporting it is the only way a reader can judge whether it is worth it.
+
+On the bilingual set the point is sharper still: keyword overlap, BM25 and the
+literal gate all score **0.67**, and the English cross-encoder scores 0.70 —
+for 282ms per pair and 184MB.
 
 ### Where the accuracy actually comes from
 
@@ -190,20 +203,26 @@ time, fitted to whatever failed last. That is the thing worth building next.
 The matcher abstains, so a single precision figure describes a system that
 does not exist. What it can answer, and how often it is right when it does:
 
-| | Development | Held-out |
-|---|---|---|
-| Answering its most confident 30% | 94.6% correct | 88.9% correct |
-| Answering 70% | 94.2% | 78.6% |
-| Answering everything | 89.5% | 71.7% |
-| AURC (vs shuffled baseline) | 0.046 (0.102) | 0.197 (0.280) |
-| Abstain ECE | 0.005 | 0.178 |
-| Coverage under 10% error | 98% | 35% |
+| | Development | Held-out | Bilingual |
+|---|---|---|---|
+| Answering its most confident 30% | 96.2% correct | 88.9% correct | 92.3% correct |
+| Answering 70% | 86.4% | 78.6% | 80.0% |
+| Answering everything | 80.4% | 70.0% | 77.3% |
+| AURC (vs shuffled baseline) | 0.105 (0.195) | 0.199 (0.299) | 0.131 (0.220) |
+| Abstain ECE | 0.028 | 0.122 | 0.139 |
+| Coverage under 10% error | 59% | 33% | 45% |
 
-The confidence signal is informative on both — it beats its shuffled baseline
-either way, so the ordering means something. But **calibration does not
-transfer**: ECE 0.005 in-domain against 0.178 out of it. In plain terms, the
-confidence numbers are trustworthy as a *ranking* and should not be shown to a
-user as probabilities out of domain. They are not.
+The confidence signal is informative on all three — it beats its shuffled
+baseline every time, so the ordering means something everywhere. But
+**calibration does not transfer**: ECE 0.028 in-domain against 0.122 and 0.139
+out of it. In plain terms, the confidence numbers are trustworthy as a
+*ranking* and should not be shown to a user as probabilities outside the domain
+they were calibrated on. They are not shown.
+
+The most useful row is the last one. In-domain the matcher can rule on 59% of
+requirements while staying under a 10% error rate; on an unseen domain that
+falls to 33%. That is the honest statement of what this tool can do, and it is
+a very different sentence from "precision 0.90".
 
 ---
 
@@ -217,11 +236,12 @@ sit in different scripts.
 
 | Scorer | P | R | F1 | ms/pair | disk |
 |---|---|---|---|---|---|
-| Keyword overlap | 0.93 | 0.57 | 0.70 | 0.1 | — |
-| Skills mapping (literal gate) | 0.92 | 0.52 | 0.67 | 0.8 | — |
-| Semantic search (English model) | 0.82 | 0.61 | 0.70 | 87 | 183MB |
-| **Semantic (multilingual)** | **0.89** | **0.70** | **0.78** | 420 | 480MB |
-| Ranking (cross-encoder, English) | 0.75 | 0.65 | 0.70 | 260 | 184MB |
+| Keyword overlap | 0.92 | 0.52 | 0.67 | 0.0 | — |
+| BM25 | 0.92 | 0.52 | 0.67 | 0.0 | — |
+| Skills mapping (literal gate) | 0.92 | 0.52 | 0.67 | 0.4 | — |
+| Semantic search (English model) | 0.82 | 0.61 | 0.70 | 59 | 183MB |
+| **Semantic (multilingual)** | **0.93** | **0.61** | **0.74** | 376 | 480MB |
+| Ranking (cross-encoder, English) | 0.75 | 0.65 | 0.70 | 282 | 184MB |
 
 That gap is not a surprise — `all-MiniLM-L6-v2` has no Arabic in its training
 data and cannot represent an Arabic requirement at all. It does not fail when
@@ -243,16 +263,13 @@ Latin tokens that survive in a mixed-script line. That is a useful
 sanity-check on what "semantic" matching is actually doing cross-lingually.
 
 Measured on the path the app actually takes (multilingual encoder, reranker
-off): **79.5% accurate answering everything, 84.6% answering its most
-confident 30%**, AURC 0.173 against a 0.202 shuffled baseline — so the
-confidence ordering carries real information in Arabic too. Calibration does
-not survive the language change, though: Abstain ECE 0.118, which is why the
-number is not shown to users as a probability.
-
-Per direction: Arabic requirement → English evidence **17/20**, Arabic →
-Arabic 9/11, English → Arabic 9/13. The weakest direction is an English
-requirement against an Arabic resume line, which is the rarer case in
-practice.
+off): **77.3% accurate answering everything, 92.3% answering its most
+confident 30%**, AURC 0.131 against a 0.220 shuffled baseline — so the
+confidence ordering carries real information in Arabic too, and it can rule on
+45% of pairs while staying under 10% error, which is better than it manages on
+the English held-out set. Calibration still does not survive the language
+change: Abstain ECE 0.139, which is why the number is not shown as a
+probability.
 
 Getting this block right required fixing the harness as well as the matcher.
 It had been reporting selective prediction for the cross-encoder on the
@@ -353,11 +370,30 @@ Input (TXT / DOCX / PDF / URL)
 
 ```bash
 pip install -r requirements.txt
-streamlit run app_streamlit.py          # the app
+streamlit run app_streamlit.py               # the app
 python app.py --resume cv.txt --job jd.txt   # CLI
-python -m pytest tests/ -q              # 32 tests
-python -m eval.holdout --all            # every evaluation set
+python -m pytest tests/ -q                   # 32 tests
 ```
+
+### Reproducing every number in this README
+
+```bash
+python -m eval.holdout --all     # the tables above, all three sets
+python -m eval.attempts          # the six changes that were tried and lost
+python -m eval.attempts --list   # what they were
+python -m eval.run_eval --errors # dev-set tuning view, with mistakes printed
+```
+
+The committed output of the first command is in
+[docs/results/holdout-all.txt](docs/results/holdout-all.txt), so the tables
+here can be checked against a run without executing anything.
+
+`eval/attempts.py` matters more than it looks. "We tried X and it didn't help"
+is the easiest claim in machine learning to make carelessly, so each rejected
+change is a function that produces its number on demand rather than a sentence
+asking to be believed. Attempt 6 is reimplemented inside that file rather than
+left behind a flag in `src/` — a matcher carrying a branch nobody should enable
+is worse than an experiment living in the evaluation folder.
 
 Works without an API key — you lose the AI panel, not the matching. NLTK
 corpora download on first run. Everything is CPU-only.
