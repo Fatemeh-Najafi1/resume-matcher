@@ -190,6 +190,25 @@ English-model rung, because the only thing those rungs can match on is the
 Latin tokens that survive in a mixed-script line. That is a useful
 sanity-check on what "semantic" matching is actually doing cross-lingually.
 
+Measured on the path the app actually takes (multilingual encoder, reranker
+off): **79.5% accurate answering everything, 84.6% answering its most
+confident 30%**, AURC 0.173 against a 0.202 shuffled baseline — so the
+confidence ordering carries real information in Arabic too. Calibration does
+not survive the language change, though: Abstain ECE 0.118, which is why the
+number is not shown to users as a probability.
+
+Per direction: Arabic requirement → English evidence **17/20**, Arabic →
+Arabic 9/11, English → Arabic 9/13. The weakest direction is an English
+requirement against an Arabic resume line, which is the rarer case in
+practice.
+
+Getting this block right required fixing the harness as well as the matcher.
+It had been reporting selective prediction for the cross-encoder on the
+bilingual set — a scorer the app disables for Arabic — and that phantom
+measurement showed the confidence signal as *no better than chance*. The
+reported conclusion was wrong because the thing being measured was not the
+thing being shipped.
+
 The chunker derives its stride from the loaded model's window rather than
 assuming 256, because a constant that is correct for one model will outlive
 that model.
