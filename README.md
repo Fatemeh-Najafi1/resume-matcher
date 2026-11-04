@@ -133,6 +133,58 @@ held-out, in microseconds, with nothing to download. The best transformer
 manages 0.67. That gap is what 183MB and 29ms per pair actually buys, and
 reporting it is the only way a reader can judge whether it is worth it.
 
+### Where the accuracy actually comes from
+
+Splitting development-set decisions by which half of the system made them:
+
+| Path | Decisions | Accuracy |
+|---|---|---|
+| Literal gate (deterministic) | 82 (46%) | **93.9%** |
+| Cosine similarity | 97 (54%) | **62.9%** |
+
+Thirty-one points apart, and the better half sees fewer than half the
+decisions. This is the most actionable number in the project: the lever is
+*coverage of the deterministic path*, not the quality of the model behind the
+other one.
+
+### Six attempts to act on that, all of which failed
+
+Full write-up in [docs/EVALUATION.md](docs/EVALUATION.md#what-did-not-work).
+
+| Attempt | Outcome |
+|---|---|
+| Fuse BM25 with the bi-encoder | Errors correlated (12 shared vs 8 complementary) — not built |
+| `bge-large-en-v1.5`, 14× the model | F1 0.82 → 0.83, **zero** extra synonym or paraphrase cases |
+| ESCO as an external vocabulary | 0 hits for kubernetes, docker, terraform — wrong source |
+| Stack Overflow vocabulary (779 terms) | Gate accuracy 93.9% → 89.3%, F1 0.70 → 0.68 |
+| Blame the generated aliases | Ablation: turning them off changed **nothing** |
+| Split products from concepts | Gate accuracy recovered to 93.8%, F1 still fell to 0.68 |
+
+The last two are the instructive pair. Only **6 of 728** new vocabulary terms
+fired on requirement text — `frontend`, `backend`, `database design`,
+`responsive design` among them. Those are *concepts, not products*, and they
+made the gate hunt for the literal word "frontend" in a bullet reading *"React,
+TypeScript, Tailwind"* and veto a real match. The principled fix — let only
+named technologies drive a veto — worked exactly as designed and still lost,
+because it bought accuracy by handing 17 decisions to a path thirty points
+worse.
+
+Everything was reverted. The generated vocabulary is kept, documented and
+**off by default**, so the comparison stays reproducible without shipping a
+regression.
+
+**The caveat that undercuts all six:** the development set is also where the
+hand-written vocabulary was fitted, so every comparison pits a tuned incumbent
+against an untuned challenger on the incumbent's own data. Widening dev to 179
+pairs across two personas mitigates that; it does not remove it. These results
+justify not shipping the changes. They do not establish that the hand-written
+vocabulary is better.
+
+What they do establish is a sharper open problem: requirements are written as
+**concepts**, external vocabularies list **products**, and the concept →
+instance relation that bridges them is supplied here by hand, one entry at a
+time, fitted to whatever failed last. That is the thing worth building next.
+
 ### Selective prediction
 
 The matcher abstains, so a single precision figure describes a system that
@@ -326,6 +378,9 @@ live demo resolved fresh.
 - **All three sets are curated hard cases**, not samples of real traffic. The
   numbers are pessimistic about the average posting and silent about the tail.
 - **The alias map does not generalise** — demonstrated above, not suspected.
+  Six attempts to replace it with an external vocabulary all measured worse;
+  the relation it encodes (concept → instance) is not what external sources
+  provide.
 - **No fairness audit has been run.** The deterministic rungs should show
   near-exact invariance under name perturbation, which is a claim no LLM scorer
   can make. Untested, so unclaimed.
@@ -348,7 +403,10 @@ live demo resolved fresh.
 - [x] Separate "unsupported" from "contradicted"
 - [x] Arabic / English cross-language matching
 - [x] Programmatic fabrication check on LLM rewrites
-- [ ] ESCO alternative labels to replace the hand-maintained alias map
+- [x] Widen the development set to a second persona and five more domains
+- [x] Test six candidate improvements and report that all six failed
+- [ ] A source for the concept → instance relation (ESCO and Stack Overflow
+      both checked and rejected — see the table above)
 - [ ] A second annotator, to establish the agreement ceiling
 - [ ] Counterfactual fairness audit
 - [ ] OCR for scanned PDFs

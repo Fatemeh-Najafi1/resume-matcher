@@ -107,18 +107,45 @@ LLM_MODELS = dict(_cfg["llm"])
 SKILLS_PATH = PROJECT_ROOT / _cfg["skills"]["path"]
 
 
-def load_skills():
-    """Read the skill vocabulary. Blank lines and # comments are ignored."""
-    if not SKILLS_PATH.exists():
+# Generated from an external source by tools/fetch_vocabulary.py. Kept
+# separate from the hand-written list so the two can never be confused: the
+# generated file is ~780 technology names nobody on this project curated, and
+# the hand-written one holds the concepts no external source has a term for
+# ("version control", "gradient boosting"). A vocabulary written by the same
+# person who reads the failures can only ever contain what they thought of,
+# which is how the first one scored 8/8 on the resume it came from and 2/7 on
+# one it did not.
+GENERATED_SKILLS_PATH = PROJECT_ROOT / "data" / "skills_generated.txt"
+
+
+def _read_terms(path):
+    if not path.exists():
         return []
-    with open(SKILLS_PATH, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         lines = (line.strip().lower() for line in f)
         return [line for line in lines if line and not line.startswith("#")]
+
+
+#: Whether to fold the externally-generated vocabulary into the hand-written
+#: one. OFF by default, and that default is a measurement rather than a
+#: preference: on the 179-pair development set the generated vocabulary moved
+#: F1 from 0.70 to 0.68 and the literal gate's accuracy from 93.9% to 89.3%.
+#: See docs/EVALUATION.md, "What did not work".
+USE_GENERATED_VOCABULARY = bool(_cfg["skills"].get("use_generated", False))
+
+
+def load_skills():
+    """Read the skill vocabulary. Blank lines and # comments are ignored."""
+    terms = set(_read_terms(SKILLS_PATH))
+    if USE_GENERATED_VOCABULARY:
+        terms |= set(_read_terms(GENERATED_SKILLS_PATH))
+    return sorted(terms)
 
 
 SKILLS = load_skills()
 
 ALIASES_PATH = PROJECT_ROOT / "data" / "skill_aliases.yaml"
+GENERATED_ALIASES_PATH = PROJECT_ROOT / "data" / "skill_aliases_generated.yaml"
 
 
 def load_aliases():
@@ -127,17 +154,24 @@ def load_aliases():
         import yaml
     except ImportError:
         return {}
-    if not ALIASES_PATH.exists():
-        return {}
-    try:
-        with open(ALIASES_PATH, "r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-    except Exception:
-        return {}
-    return {
-        str(concept).lower(): {str(t).lower() for t in (terms or [])}
-        for concept, terms in raw.items()
-    }
+    merged = {}
+    # Generated first so the hand-written file wins on any collision: it holds
+    # the deliberate concept -> instance relations, which are a stronger claim
+    # than a spelling synonym and should not be overwritten by one.
+    paths = ((GENERATED_ALIASES_PATH, ALIASES_PATH)
+             if USE_GENERATED_VOCABULARY else (ALIASES_PATH,))
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+        for concept, terms in raw.items():
+            key = str(concept).lower()
+            merged.setdefault(key, set()).update(str(t).lower() for t in (terms or []))
+    return merged
 
 
 SKILL_ALIASES = load_aliases()

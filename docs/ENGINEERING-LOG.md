@@ -383,12 +383,86 @@ metric nobody can sanity-check by eye, in the direction I wanted.
 
 ---
 
+## 16. Six fixes, zero improvements, one better question
+
+§11 diagnosed the problem and I went to fix it. Nothing I tried worked. The
+full tables are in docs/EVALUATION.md; this is what I took from it.
+
+**The measurement that should have come first.** Before trying anything I
+split development-set decisions by which half of the system made them: the
+literal gate was 93.9% accurate over 46% of decisions, cosine 62.9% over the
+rest. Thirty-one points apart. That single table told me the lever was
+*coverage of the deterministic path*, and it made three of the six attempts
+obviously misdirected in hindsight — I was reaching for a better model when
+the model was never the binding constraint.
+
+I should have run it on day one. It cost about four minutes.
+
+**Checking a recommendation before acting on it.** My own notes named ESCO as
+the top fix. One API call: kubernetes 0 hits, docker 0 hits, terraform 0 hits.
+ESCO is an occupational taxonomy and simply does not contain software. Ten
+minutes of checking against several days of integrating something that could
+not have worked.
+
+**The result I was most confident about, and most wrong about.**
+`bge-large-en-v1.5` is fourteen times the shipped encoder and well ahead on
+public benchmarks. It moved F1 by 0.01 and fixed *not one* synonym or
+paraphrase case. Benchmark rank did not transfer. After that I stopped
+treating "use a better model" as a plan.
+
+**The one that taught me the most by failing.** An external vocabulary should
+have been the principled fix — a hand-written list can only hold what its
+author thought of, which is exactly §11's lesson. 779 Stack Overflow tags,
+WordNet-filtered, recognising Airflow and Snowflake that the hand list never
+had. It made things worse.
+
+Finding out why took an ablation that nearly misled me: I assumed the 361 new
+aliases were the noise, and turning them off changed *nothing*. It was the
+vocabulary — and only **6 of 728** terms, because only six ever appear in
+requirement text. Four of those six are concepts, not products: `frontend`,
+`backend`, `database design`, `responsive design`. "3+ years of frontend
+experience" made the gate search a bullet reading "React, TypeScript,
+Tailwind" for the literal string "frontend", fail, and veto a genuine match.
+
+So I built the fix that implies — let only named technologies drive a veto,
+defer concepts to similarity — and **it lost too**, having done exactly what
+it was designed to do. Gate accuracy climbed back to 93.8%. It bought that by
+surrendering 17 decisions to a path thirty points worse. Accuracy on what you
+keep is not the objective when abstaining hands the work to something weaker.
+I had optimised the wrong half of the risk–coverage tradeoff I built the
+metrics for in §15, which is a particular kind of embarrassing.
+
+**What I am not entitled to conclude.** Every comparison above scores a
+challenger against an incumbent on the data the incumbent was fitted to.
+Widening dev to 179 pairs across two personas helps and does not fix it. These
+results justify not shipping the changes; they do not show the hand-written
+vocabulary is better. Settling that needs a fresh set, and spending the
+held-out set on it would destroy the only working instrument I have.
+
+**The better question.** Requirements are written as concepts — "container
+orchestration", "infrastructure as code". Vocabularies list products —
+Kubernetes, Terraform. The relation between them is a hypernym, and none of
+the sources I checked supplies it: tag synonyms are spelling variants, ESCO
+has no software in it. This project supplies that relation by hand, one entry
+at a time, each added after something failed — which is precisely why it
+scored 8/8 on the résumé it was written from and 2/7 on one it was not.
+
+That is a sharper problem than "the matcher misses synonyms", and I only have
+it because six attempts failed in six distinguishable ways. Untried: Wikipedia
+and Wikidata category graphs, DBpedia, or deriving the relation statistically
+from co-occurrence in a large corpus of postings.
+
+I would rather report this than a cherry-picked win. A project that only
+publishes the changes that worked is one whose numbers you cannot trust.
+
+---
+
 ## Open items
 
-1. **ESCO alternative labels** (CC BY 4.0) to replace the hand-maintained
-   alias map, keeping the hand map as an override. This is the direct fix for
-   the synonym collapse in §11. Published ESCO coverage reaches about 64.5% of
-   annotated skill spans, so the hybrid is necessary rather than lazy.
+1. **A source for the concept → instance relation** — see §16. ESCO and Stack
+   Overflow tag synonyms were both tried and both rejected, for different and
+   recorded reasons. Untried: Wikipedia/Wikidata category graphs, DBpedia, or
+   deriving the relation from co-occurrence across a large posting corpus.
 2. **A third evaluation set** to settle the bi-encoder/cross-encoder question
    in §12. Neither existing set can.
 3. **A second annotator** on the existing pairs. The disagreement rate is the

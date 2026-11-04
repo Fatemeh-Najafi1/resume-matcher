@@ -126,6 +126,14 @@ def hard_gate(requirement_text, resume_text):
     # Nothing found is silence, not disproof. A resume that never mentions
     # Kafka says nothing about whether the candidate has used Kafka, so this
     # is reported as a question to ask rather than a reason to reject.
+    #
+    # An attempt was made to go further and defer entirely when every missing
+    # term is a concept rather than a named product — on the theory that the
+    # absence of the string "frontend" says nothing, while the absence of
+    # "PyTorch" says something. It was measured and it lost: the gate ruled on
+    # 65 development pairs instead of 82 and F1 fell from 0.70 to 0.68, because
+    # the concepts in this vocabulary carry alias lists that make their absence
+    # genuinely informative. Recorded in docs/EVALUATION.md rather than kept.
     if not present:
         return (Verdict.UNSUPPORTED,
                 "not found in your resume: " + ", ".join(named) +

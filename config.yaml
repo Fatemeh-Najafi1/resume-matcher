@@ -94,6 +94,17 @@ skills:
   # Vocabulary used to pull a concrete skill set out of each document.
   path: data/skills_list.txt
 
+  # Fold in data/skills_generated.txt — ~780 technology names pulled from an
+  # external source by tools/fetch_vocabulary.py, so that the vocabulary is
+  # not fitted to this project's own evaluation sets.
+  #
+  # OFF because it was measured and it lost. On the 179-pair development set
+  # it took F1 from 0.70 to 0.68 and the literal gate's accuracy from 93.9%
+  # to 89.3%. The honest caveat is that the development set is also where the
+  # hand-written vocabulary was fitted, so this comparison flatters the
+  # incumbent and cannot settle the question. Kept, documented, and off.
+  use_generated: false
+
 # Model IDs for the optional LLM analysis step. Providers retire model names
 # without warning — "gemini-1.5-flash" was hardcoded here and had been removed,
 # which broke the whole AI panel. Keeping them here makes that a one-line fix.

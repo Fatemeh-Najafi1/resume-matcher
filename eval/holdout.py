@@ -50,8 +50,14 @@ from src.utils import is_judgement_call                             # noqa: E402
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "eval"
 
+# The development set is a POOL of files, not one file. It started as a single
+# resume's worth of pairs, which made the alias map look complete when it was
+# only fitted — the held-out run showed synonym accuracy falling 8/8 to 2/7.
+# Widening the pool is the fix that makes every later fix measurable.
+DEV_FILES = [DATA / "pairs.jsonl", DATA / "pairs_multidomain.jsonl"]
+
 SETS = {
-    "dev": (DATA / "pairs.jsonl", "development set (tuned against — contaminated)"),
+    "dev": (DEV_FILES, "development set (tuned against — contaminated)"),
     "holdout": (DATA / "holdout.jsonl", "held-out English set (never tuned against)"),
     "bilingual": (DATA / "pairs_bilingual.jsonl", "Arabic/English set (never tuned against)"),
 }
@@ -63,17 +69,21 @@ MULTILINGUAL_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v
 PRECISION_FLOOR = 0.90
 
 
-def load(path):
+def load(paths):
+    """Load one evaluation file, or a pool of them."""
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
     rows = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            row = json.loads(line)
-            if "_comment" in row:
-                continue
-            rows.append(row)
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                if "_comment" in row:
+                    continue
+                rows.append(row)
     return rows
 
 

@@ -30,6 +30,7 @@ clean.
 | Set | File | Pairs | Role |
 |---|---|---|---|
 | Development | `data/eval/pairs.jsonl` | 124 | Tuning. Thresholds, aliases, vocabulary and rules are all chosen here. Contaminated **by design** — that is what it is for. |
+| Development, part 2 | `data/eval/pairs_multidomain.jsonl` | 55 | Also tuning. A second persona (full-stack / security) across web, mobile, security, testing and cloud. Added because one résumé is not a distribution. Deliberately **not** data engineering — that is the held-out set's domain, and widening dev toward it would fit the project to the held-out distribution sideways. |
 | Held-out (English) | `data/eval/holdout.jsonl` | 60 | Measurement. Different persona, different domains. Never tuned against. |
 | Bilingual (AR/EN) | `data/eval/pairs_bilingual.jsonl` | 44 | Measurement. Cross-language matching and Arabic orthography. Never tuned against. |
 
@@ -173,6 +174,166 @@ surfaced it.
 
 ---
 
+---
+
+## What did not work
+
+The held-out run gave a clear diagnosis, so the obvious next step was to act on
+it. Six changes were tried. **None of them beat the baseline**, and the reasons
+are more useful than a win would have been.
+
+First, the measurement that framed everything. On the 179-pair development set,
+split by which half of the system made each call:
+
+| Path | Decisions | Accuracy |
+|---|---|---|
+| Literal gate (deterministic) | 82 (46%) | **93.9%** |
+| Cosine similarity | 97 (54%) | **62.9%** |
+
+The deterministic path is thirty-one points more accurate and sees fewer than
+half the decisions. That single table reframed the problem: the lever is
+**coverage of the deterministic path**, not the quality of the model behind the
+other one. Every attempt below follows from it.
+
+### 1. Fusing lexical and dense scoring — rejected before building
+
+Hypothesis: BM25 and the bi-encoder miss different pairs, so combining them
+recovers recall.
+
+Measured on dev first: BM25 wrong alone on 3 pairs, the bi-encoder wrong alone
+on 5, **both wrong on 12**. The errors are correlated, not complementary, so
+fusion had little to recover. Not built.
+
+### 2. A much better encoder — no effect
+
+Hypothesis: `all-MiniLM-L6-v2` is far behind current models on public
+benchmarks, so upgrading it should fix the paraphrase and synonym failures.
+
+`bge-large-en-v1.5` is roughly fourteen times the size and well ahead on those
+benchmarks:
+
+| Encoder | F1 | synonym | paraphrase |
+|---|---|---|---|
+| all-MiniLM-L6-v2 (shipped) | 0.82 | 8/8 | 11/14 |
+| bge-large-en-v1.5 | 0.83 | 8/8 | 11/14 |
+
+One point of F1 and **not a single additional synonym or paraphrase case**. The
+encoder is not the bottleneck, and the public benchmark ranking did not transfer
+to this task at all. This is the result that killed "just use a better model" as
+a strategy.
+
+### 3. ESCO as an external vocabulary — wrong source
+
+ESCO is the EU's occupational taxonomy, CC BY 4.0, and this project's own notes
+had named it the top fix. Checked against its API before any integration work:
+
+| Query | Hits |
+|---|---|
+| python | 2 |
+| javascript | 6 |
+| kubernetes | **0** |
+| docker | **0** |
+| terraform | **0** |
+| machine learning | 894 (fuzzy prose matches, not skill entries) |
+
+ESCO describes occupations and transversal skills well and named technologies
+not at all. The recommendation to use it had been made without checking it;
+checking it took ten minutes and saved several days.
+
+### 4. A Stack Overflow vocabulary — measurably worse
+
+If a hand-written vocabulary can only contain what its author thought of, the
+fix is a vocabulary from outside the project. Stack Overflow's tag list is
+exactly that: a technology vocabulary maintained by millions of practitioners,
+with a synonym graph (`js` → `javascript`, `rails` → `ruby-on-rails`) that is
+the same relation this project encodes by hand. `tools/fetch_vocabulary.py`
+pulls it, filters out ordinary English words using WordNet, and writes 779
+terms against the hand-written 130.
+
+It recognised Airflow, Snowflake, Docker, Kubernetes, React and TypeScript —
+none of which the hand-written list contained, and two of which are held-out
+domain terms that arrived from outside rather than from inspecting failures.
+
+And it lost:
+
+| Configuration | Gate decisions | Gate accuracy | F1 |
+|---|---|---|---|
+| Hand-written vocabulary | 82 | **93.9%** | **0.70** |
+| + generated vocabulary | 84 | 89.3% | 0.68 |
+
+### 5. Blaming the generated aliases — wrong suspect
+
+The natural reading of #4 was that 361 new alias entries had introduced noise.
+An ablation disagreed, and it carried a built-in correctness check: its third
+row reproduces the baseline exactly, so the harness was measuring what it
+claimed to.
+
+| Configuration | Gate | Gate accuracy | F1 |
+|---|---|---|---|
+| Generated vocabulary + aliases | 84 | 89.3% | 0.68 |
+| Generated vocabulary, aliases OFF | 84 | 89.3% | 0.68 |
+| Both OFF | 82 | 93.9% | 0.70 |
+
+Turning the aliases off changed **nothing**. The vocabulary was the culprit.
+
+Which was puzzling, because only **6 of 728** new terms fire on requirement
+text at all. Those six: `apache spark`, `databricks`, `database design`,
+`responsive design`, `backend`, `frontend`. Four of them are **concepts, not
+product names** — and that is the whole story. "3+ years of frontend
+experience" made the gate hunt for the literal string "frontend" in a bullet
+reading *"React, TypeScript, Tailwind"*, find nothing, and veto a genuine match.
+
+### 6. Separating products from concepts — principled, and still worse
+
+The fix implied by #5: a named technology's absence is informative (PyTorch is
+either written or not), a concept's absence is not (people do front-end work
+for a decade without typing the word). So let only specific technologies drive
+a veto, and defer the rest to similarity. Specificity was decided by WordNet —
+a term is specific if it carries a token no dictionary knows.
+
+| Configuration | Gate | Gate accuracy | F1 |
+|---|---|---|---|
+| Baseline | 82 | 93.9% | **0.70** |
+| Concept split, generated vocabulary on | 56 | 92.9% | 0.66 |
+| …plus an exception for concepts with aliases | 66 | 90.9% | 0.66 |
+| Concept split, hand-written vocabulary | 65 | 93.8% | 0.68 |
+
+It did exactly what it was designed to do — gate accuracy recovered to 93.8% —
+and still lost, because it bought that accuracy by **giving up 17 decisions to
+a path that is thirty points worse**. Accuracy on the decisions you keep is not
+the objective when abstention hands the work to something weaker.
+
+Reverted. The helper was deleted rather than left in as dead code.
+
+### What this leaves
+
+The generated vocabulary is kept, documented, and **off by default**
+(`skills.use_generated` in `config.yaml`), so the comparison is reproducible
+without shipping a regression.
+
+One caveat has to be stated plainly, because it undercuts all six results: **the
+development set is also where the hand-written vocabulary was fitted.** Every
+comparison above is between an incumbent tuned on this data and a challenger
+that was not, scored on that same data. Widening the set to 179 pairs across two
+personas mitigates it; it does not remove it. These results are strong enough to
+justify not shipping the changes, and not strong enough to conclude the
+hand-written vocabulary is genuinely better. Settling that needs a fresh set, and
+spending the held-out set on it would destroy the one instrument that works.
+
+The honest summary is narrower than "nothing helps":
+
+- The bottleneck is **coverage of the deterministic path**, measured.
+- It is **not** the encoder, measured twice.
+- It is **not** solved by a larger vocabulary, because requirements are phrased
+  as concepts while external vocabularies list products.
+- The missing piece is the **concept → instance** relation ("container
+  orchestration" → Kubernetes), which tag synonyms do not provide, ESCO does
+  not cover, and this project currently supplies by hand — one concept at a
+  time, fitted to whatever failed last.
+
+That is a sharper open problem than the one this started with, and it is the
+next thing worth building.
+
 ## What these numbers may be used to claim
 
 **Can be claimed:**
@@ -225,10 +386,14 @@ seeds in the metrics, and no network dependency once the models are cached.
 
 ## Open items
 
-1. **Replace the hand-maintained alias map with ESCO alternative labels**
-   (CC BY 4.0), keeping the hand map only as an override. This is the direct
-   fix for the synonym collapse. Published coverage of ESCO against annotated
-   skill spans is about 64.5%, so a hybrid is necessary rather than lazy.
+1. **A source for the concept → instance relation.** This is the real open
+   problem, and it is sharper than the one this started with. Requirements are
+   written as concepts ("container orchestration", "infrastructure as code");
+   vocabularies list products (Kubernetes, Terraform). Tag synonyms give
+   spelling variants, not hypernyms. ESCO does not cover technology at all —
+   both checked and recorded under *What did not work*. Candidates not yet
+   tried: Wikipedia/Wikidata category graphs, DBpedia, or deriving the
+   relation from co-occurrence in a large job-posting corpus.
 2. **A second annotator** on the existing pairs, to establish the agreement
    ceiling.
 3. **Per-domain reporting at scale.** A retrieval benchmark in this area found
