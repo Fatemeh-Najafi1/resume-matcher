@@ -40,14 +40,17 @@ scoring:
 # was chosen by eyeballing one posting and was badly wrong — it scored precision
 # 1.00 at recall 0.20, i.e. it missed four out of five genuine matches.
 #
-# Bi-encoder cosine, with the literal gate applied:
+# The 0.55 figure above is raw cosine without the gate, which is what the
+# original version actually shipped.
 #
-#   threshold   precision  recall
-#     0.55         1.00      0.39   <- original guess
-#     0.40         0.95      0.72
-#     0.36         0.95      0.75   <- covered
-#     0.28         0.87      0.80   <- partial
-#     0.24         0.76      0.83      precision falls away below here
+# A table of threshold/precision/recall used to live here and had gone stale:
+# it reported recall 0.39 at 0.55 where the measured value is 0.20, because
+# the gate it was measured against has changed twice since. Numbers written
+# into comments rot silently, which is the same failure this project keeps
+# designing against, so the table is gone. Run the eval instead:
+#
+#     python -m eval.run_eval      # sweeps thresholds, prints the curve
+#     python -m eval.holdout --all # measures on data never tuned against
 #
 # Precision is weighted over recall on purpose: a false "covered" tells someone
 # they meet a requirement they do not, which is the failure this project exists
